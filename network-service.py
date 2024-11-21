@@ -31,11 +31,13 @@ def link_works(src_node, dst_node):
     
 #Helper function to check that node is alive
 def node_alive(node):
+    #todo: index node status list
     return True
 
 #Function to close all sockets and exit program
 def do_exit():
     #Close all open sockets
+    #todo: check which nodes are active in connections dict
     connections["NS"].close()
     connections["P1"].close()
     connections["P2"].close()
@@ -93,6 +95,8 @@ def do_fail_node(message):
     node = message_split[1]
     if node in node_status:
         node_status[node] = False
+        #todo destroy links and remove from connections{}
+        #todo send TIMEOUT message (in send_msg()) and send to destroyed node to exit
 
 #Function to collect and execute operations from terminal
 #(Run on separate thread!)
@@ -108,13 +112,13 @@ def do_input():
                 case "exit":
                     do_exit()
                 case "failLink": #Comm link fil between src and dst nodes (no msgs betwn the nodes)
-                    faillink_handler = threading.Thread(target = do_fail_link, args=(terminal_msg))
+                    faillink_handler = threading.Thread(target = do_fail_link, args=(terminal_msg,))
                     faillink_handler.start()
                 case "fixLink": #Counter to failLink
-                    fixlink_handler = threading.Thread(target = do_fix_link, args=(terminal_msg))
+                    fixlink_handler = threading.Thread(target = do_fix_link, args=(terminal_msg,))
                     fixlink_handler.start()
                 case "failNode": #Kill node (crash failure) and must restart node after
-                    failnode_handler = threading.Thread(target = do_fail_node, args=(terminal_msg))
+                    failnode_handler = threading.Thread(target = do_fail_node, args=(terminal_msg,))
                     failnode_handler.start()
         except:
             break
@@ -123,9 +127,9 @@ def do_input():
 def send_msg(message):
     #Message format:
     #<src_node> <dst_node> <message>
-    #P1 P3 create <contextid>
+    #P1 P3 PREPARE create <contextid>
     message_split = message.split(" ")
-    #Get src and dst nodes (from which node to which node)
+    #G'et src and dst nodes (from which node to which node)
     src_node = message_split[0]
     dst_node = message_split[1]
     #Check that link exists between node
@@ -143,7 +147,7 @@ def handle_client(client_socket, addr):
         try:            
             #Receive and split up messages from processes
             #   Messages will be in the format: "<pid_src> <pid_dst> <message>"
-            #   e.g. P1 P3 create <contextid>
+            #   e.g. P1 P3 PREPARE create <contextid>
             stream = client_socket.recv(1024).decode('utf-8') 
             messages = stream.split(' break ')
             for message in messages:
@@ -151,13 +155,14 @@ def handle_client(client_socket, addr):
                     continue
 
                 #Get src process id and check that it has been logged in connections dictionary
-                proc_id = message.split(" ")[0]
-                if proc_id not in connections:
-                    connections[proc_id] = client_socket
-
-                #Send message to destination pid
-                do_task_client_thread = threading.Thread(target=send_msg, args=(message))
-                do_task_client_thread.start() 
+                if (message == "P1") or (message == "P2") or (message == "P3"):
+                    connections[message] = client_socket
+                    #Todo fix link, set node to alive
+                else:
+                    #Send message to destination pid
+                    print("starting thread and sending message")
+                    do_task_client_thread = threading.Thread(target=send_msg, args=(message,))
+                    do_task_client_thread.start() 
         except:
             break
 
@@ -170,7 +175,7 @@ def start_client():
     server.bind((socket.gethostbyname(""), 9000))
     server.listen(3) #Listen for P1, P2, P3
 
-    # Handle connections
+    #Handle connections
     while True:
         try:
             client_socket, addr = server.accept()
@@ -186,7 +191,7 @@ if __name__ == "__main__":
     links[("P1", "P2")] = True
     links[("P1", "P3")] = True
     links[("P2", "P3")] = True
-    #Initialize node_status dictionary
+    #Initialize node_status dictionary #todo set to false before they connect
     node_status["P1"] = True
     node_status["P2"] = True
     node_status["P3"] = True
