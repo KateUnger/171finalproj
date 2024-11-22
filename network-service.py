@@ -129,7 +129,7 @@ def send_msg(message):
     #<src_node> <dst_node> <message>
     #P1 P3 PREPARE create <contextid>
     message_split = message.split(" ")
-    #G'et src and dst nodes (from which node to which node)
+    #Get src and dst nodes (from which node to which node)
     src_node = message_split[0]
     dst_node = message_split[1]
     #Check that link exists between node
@@ -147,6 +147,7 @@ def handle_client(client_socket, addr):
         try:            
             #Receive and split up messages from processes
             #   Messages will be in the format: "<pid_src> <pid_dst> <message>"
+            # todo add ballot num so it is P1 P3 PREPARE <ballot_num> <operation>
             #   e.g. P1 P3 PREPARE create <contextid>
             stream = client_socket.recv(1024).decode('utf-8') 
             messages = stream.split(' break ')
