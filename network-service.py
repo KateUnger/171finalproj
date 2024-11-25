@@ -32,16 +32,14 @@ def link_works(src_node, dst_node):
 #Helper function to set link between two nodes to the value passed in
 def set_link(node_to_change, other_node, value):
     global lock
-    node_to_change = int(node_to_change.replace("P",""))
-    other_node = int(other_node.replace("P",""))
-    if node_to_change < other_node:
-        lock.acquire()
-        links[(node_to_change, other_node)] = value
-        lock.release()
-    elif other_node < node_to_change:
-        lock.acquire()
-        links[(other_node, node_to_change)] = value
-        lock.release()
+    num_to_change = int(node_to_change.replace("P",""))
+    other_num = int(other_node.replace("P",""))
+    if num_to_change < other_num:
+        with lock:
+            links[(node_to_change, other_node)] = value
+    elif other_num < num_to_change:
+        with lock:
+            links[(other_node, node_to_change)] = value
 
 #Helper function to make sure nodes exist 
 # (e.g. if P4 is passed in, we should ignore the request)
@@ -93,7 +91,8 @@ def do_fail_link(message):
         print("Incorrect Node ID")
         return
     #Find link in links{}
-    set_link(src_node, dst_node) = False
+    # set_link(src_node, dst_node) = False
+    set_link(src_node, dst_node, False)
 
 
 #Function to execute the fixLink Command
@@ -123,15 +122,13 @@ def do_fail_node(message):
         print("Incorrect Node ID")
         return
     if node in node_status:
-        lock.acquire()
-        node_status[node] = False
-        lock.release()
+        with lock:
+            node_status[node] = False
         socket = connections[node]
         print(f"SEND (to {node}) EXIT")
         socket.send(f"EXIT{' break '}".encode('utf-8'))
-        lock.acquire()
-        del connections[node]
-        lock.release()
+        with lock:
+            del connections[node]
         change_node_links(node, False)
         
 #Function to collect and execute operations from terminal
@@ -169,10 +166,18 @@ def send_msg(message):
     src_node = message_split[0]
     dst_node = message_split[1]
     #Check for input error (e.g. nodes are incorrect)
+
+    # print(f"connections: {connections}")
+    print(f"node_status: {node_status}")
+    print(f"links: {links}")
+
     if is_not_node(src_node) or is_not_node(dst_node):
         print("Incorrect Node ID")
         return
     #Check that link exists between node
+    print(link_works(src_node, dst_node))
+    print(node_alive(dst_node))
+    print(dst_node in connections)
     if link_works(src_node, dst_node) and node_alive(dst_node) and (dst_node in connections):
         #Send message to dst node
         dst_socket = connections[dst_node]
@@ -201,15 +206,14 @@ def handle_client(client_socket, addr):
             for message in messages:
                 if not message:
                     continue
-                print("NEW MESSAGE" + str(message))
+                print("NEW MESSAGE " + str(message))
 
                 #todo add 3 second delay 
                 #Get src process id and check that it has been logged in connections dictionary
                 if (message == "P1") or (message == "P2") or (message == "P3"):
-                    lock.acquire()
-                    connections[message] = client_socket
-                    node_status[message] = True
-                    lock.release()
+                    with lock:
+                        connections[message] = client_socket
+                        node_status[message] = True
                     change_node_links(message, True)
                 else:
                     #Send message to destination pid
@@ -225,9 +229,8 @@ def start_client():
     #Host socket for processes to connect to:
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     #Add host socket to connections dictionary for easy exit (in do_exit())
-    lock.acquire()
-    connections["NS"] = server
-    lock.release()
+    with lock:
+        connections["NS"] = server
     server.bind((socket.gethostbyname(""), 9000))
     server.listen(3) #Listen for P1, P2, P3
 
@@ -244,15 +247,14 @@ if __name__ == "__main__":
     #Initialize links dictionary    
     lock = threading.Lock()
 
-    lock.acquire()
-    links[("P1", "P2")] = False
-    links[("P1", "P3")] = False
-    links[("P2", "P3")] = False
-    #Initialize node_status dictionary
-    node_status["P1"] = False
-    node_status["P2"] = False
-    node_status["P3"] = False
-    lock.release()
+    with lock:
+        links[("P1", "P2")] = False
+        links[("P1", "P3")] = False
+        links[("P2", "P3")] = False
+        #Initialize node_status dictionary
+        node_status["P1"] = False
+        node_status["P2"] = False
+        node_status["P3"] = False
     #Start input 
     input_handler = threading.Thread(target = do_input)
     input_handler.start()
