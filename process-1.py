@@ -11,9 +11,12 @@ accepted_val = ""
 op_log = []
 leader_queue = []
 temp_queue = {} # operations that we need to do when we become leader (which timed out previously)
+processed_operations = set() # track processed operations
 
 promise_count = 0
 accepted_count = 0
+
+accepted_condition = threading.Condition()
 
 lock = threading.Lock()
 
@@ -30,7 +33,7 @@ def handle_prepare(network_server, src_node, dst_node, incoming_seq_num, incomin
     global ballot_number
     global leader
 
-    if int(incoming_seq_num) > ballot_number[0]:
+    if int(incoming_seq_num) >= ballot_number[0]: # to do: > or >=
         ballot_number = (incoming_seq_num, ballot_number[1], ballot_number[2])
         # ballot_number[0] = incoming_seq_num
         with lock:
@@ -40,7 +43,7 @@ def handle_prepare(network_server, src_node, dst_node, incoming_seq_num, incomin
 
         for temp_ballot_num, temp_op in temp_queue.items():
             network_server.send(f"{dst_node} {src_node} NEWOP {temp_ballot_num[0]} {temp_ballot_num[1]} {temp_ballot_num[2]} {temp_op}{' break '}".encode('utf-8'))
-    elif int(incoming_seq_num) == ballot_number[0] and int(incoming_pid) > ballot_number[1]:
+    elif int(incoming_seq_num) == ballot_number[0] and int(incoming_pid) >= ballot_number[1]:
         with lock:
             leader = src_node
         network_server.send(f"{dst_node} {src_node} PROMISE {incoming_seq_num} {incoming_pid} {incoming_op_num} {accepted_num[0]} {accepted_num[1]} {accepted_num[2]} {accepted_val} {op_log}{' break '}".encode('utf-8'))
@@ -61,7 +64,7 @@ def handle_accept(network_server, src_node, dst_node, incoming_seq_num, incoming
     global accepted_num
     global accepted_val
 
-    if int(incoming_op_num) < ballot_number[2]:
+    if int(incoming_op_num) >= ballot_number[2]:
         network_server.send(f"{dst_node} {src_node} ACCEPTED {incoming_seq_num} {incoming_pid} {incoming_op_num} {operation}{' break '}".encode('utf-8'))
         print(f"{dst_node} {src_node} ACCEPTED {incoming_seq_num} {incoming_pid} {incoming_op_num} {operation}")
         
@@ -71,8 +74,11 @@ def handle_accept(network_server, src_node, dst_node, incoming_seq_num, incoming
 
 def handle_accepted():
     global accepted_count
-    with lock:
+    # with lock:
+    with accepted_condition:
         accepted_count += 1
+        if accepted_count >= 1:
+            accepted_condition.notify_all()
 
 def handle_decide(operation):
     global accepted_num
@@ -98,18 +104,39 @@ def select_best_answer(): # check?
     pass
 
 def handle_LLM_query():
-    pass
+    print("temporarily handling LLM query")
 
 def handle_leader_queue(network_server):
-    while True:
+    # while True:
         # to do: add to the end of the leader_queue or set equal to temp_queue?
-        leader_queue.extend(temp_queue.values())
+        
+        # print("temp_queue: ", temp_queue)
+        leader_queue.extend(temp_queue.values()) # to do: parse temp queue differently because it's a dictionary
+        # print("leader_queue:", leader_queue)
 
-        while True:
-            leader_queue.pop(0)
-            network_server.send(f"P1 P2 ACCEPT {strip_ballot_num(ballot_number)}{' break '}".encode('utf-8'))
-            network_server.send(f"P1 P3 ACCEPT {strip_ballot_num(ballot_number)}{' break '}".encode('utf-8'))
+        # while True:
+        while leader_queue:
+        # if leader_queue:
+            print("leader_queue: ", leader_queue)
+            operation = leader_queue.pop(0)
+            if operation not in processed_operations:
+                print("operation not in processed ops already")
+                processed_operations.add(operation)
+                print("leader queue after pop: ", leader_queue)
+                network_server.send(f"P1 P2 ACCEPT {strip_ballot_num(ballot_number)} {operation}{' break '}".encode('utf-8'))
+                network_server.send(f"P1 P3 ACCEPT {strip_ballot_num(ballot_number)} {operation}{' break '}".encode('utf-8'))
 
+                global accepted_count
+                with accepted_condition:
+                    with lock:
+                        accepted_count = 0
+                    while accepted_count < 1:
+                        accepted_condition.wait()
+
+                network_server.send(f"P1 P2 DECIDE {strip_ballot_num(ballot_number)} {operation}{' break '}".encode('utf-8'))
+                network_server.send(f"P1 P3 DECIDE {strip_ballot_num(ballot_number)} {operation}{' break '}".encode('utf-8'))
+
+                print("leader queue after sending decide messages: ", leader_queue)
 def new_op_to_queue(network_server, src_node, dst_node, incoming_seq_num, incoming_pid, incoming_op_num, operation):
     if leader == "P1":
         leader_queue.append(operation)
@@ -140,6 +167,7 @@ def start_election(network_server):
                 accepted_count = 0
                 leader_queue_handler = threading.Thread(target=handle_leader_queue, args=(network_server,))
                 leader_queue_handler.start()
+                break
 
 def handle_server_input(s1, network_server):
     while True:
@@ -175,7 +203,7 @@ def handle_server_input(s1, network_server):
                     accepted_pid = response_split[7]
                     accepted_op_num = response_split[8]
                     spliced_op = spliced_op.replace(f"{src_node} {dst_node} {incoming_seq_num} {incoming_pid} {incoming_op_num} {accepted_seq_id} {accepted_pid} {accepted_op_num}", "").replace("PROMISE ", "")
-                    print(f"in {spliced_op}")
+                    # print(f"in {spliced_op}")
                     promise_handler = threading.Thread(target=handle_promise, args=(spliced_op,))
                     promise_handler.start()
                 
@@ -245,6 +273,7 @@ def handle_user_input(s1, network_server):
         if leader == "P1":
             with lock:
                 leader_queue.append(operation)
+                print("leader_queue after adding a new operation: ", leader_queue)
         elif leader != "P1" and leader != "": 
             # to do: new thread here?
             network_server.send(f"P1 {leader} NEWOP {operation}{' break '}".encode('utf-8'))
@@ -257,7 +286,7 @@ def handle_user_input(s1, network_server):
 
 def start_client():
     s1 = socket.socket(socket.AF_INET, socket.SOCK_STREAM) 
-    s1.bind(('127.0.0.1', 9001)) 
+    s1.bind(('127.0.0.1', 9005)) 
     s1.listen(3)
 
     network_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM) 
