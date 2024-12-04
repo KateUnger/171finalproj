@@ -34,7 +34,7 @@ def handle_prepare(network_server, src_node, dst_node, incoming_seq_num, incomin
     global leader
 
     if int(incoming_seq_num) >= ballot_number[0]:
-        ballot_number = (incoming_seq_num, ballot_number[1], ballot_number[2])
+        ballot_number = (int(incoming_seq_num), int(ballot_number[1]), int(ballot_number[2]))
         # ballot_number[0] = incoming_seq_num
         with lock:
             leader = src_node
@@ -86,7 +86,7 @@ def handle_decide(operation):
     global ballot_number
 
     with lock:
-        ballot_number = (ballot_number[0], ballot_number[1], ballot_number[2] + 1)
+        ballot_number = (int(ballot_number[0]), int(ballot_number[1]), int(ballot_number[2] + 1))
         # ballot_number[2] += 1
 
     LLM_handler = threading.Thread(target=handle_LLM_query, args=())
@@ -98,7 +98,7 @@ def handle_decide(operation):
         accepted_val = ""
 
 def handle_ack(incoming_seq_num, incoming_pid, incoming_op_num, operation):
-    del temp_queue[(incoming_seq_num, incoming_pid, incoming_op_num)]
+    del temp_queue[(int(incoming_seq_num), int(incoming_pid), int(incoming_op_num))]
 
 def select_best_answer(): # check?
     pass
@@ -141,7 +141,7 @@ def start_election(network_server):
     global ballot_number
 
     with lock:
-        ballot_number = (ballot_number[0] + 1, ballot_number[1], ballot_number[2])
+        ballot_number = (int(ballot_number[0] + 1), int(ballot_number[1]), int(ballot_number[2]))
         # ballot_number[0] += 1
     
     network_server.send(f"P2 P1 PREPARE {strip_ballot_num(ballot_number)}{' break '}".encode('utf-8'))
@@ -204,6 +204,7 @@ def handle_server_input(s2, network_server):
                     incoming_pid = response_split[4]
                     incoming_op_num = response_split[5]
                     spliced_op = spliced_op.replace(f"{src_node} {dst_node} {incoming_seq_num} {incoming_pid} {incoming_op_num} ", "").replace("ACCEPT ", "")
+                    print("accept spliced: ", spliced_op)
                     accept_handler = threading.Thread(target=handle_accept, args=(network_server, src_node, dst_node, incoming_seq_num, incoming_pid, incoming_op_num, spliced_op))
                     accept_handler.start()
                 
@@ -239,6 +240,7 @@ def handle_server_input(s2, network_server):
                     incoming_pid = response_split[4]
                     incoming_op_num = response_split[5]
                     spliced_op = spliced_op.replace(f"{src_node} {dst_node} {incoming_seq_num} {incoming_pid} {incoming_op_num} ", "").replace("ACK ", "")
+                    print("spliced ", spliced_op)
                     ack_handler = threading.Thread(target=handle_ack, args=(incoming_seq_num, incoming_pid, incoming_op_num, spliced_op))
                     ack_handler.start()
 
@@ -266,7 +268,7 @@ def handle_user_input(s2, network_server):
                 leader_queue.append(operation)
         elif leader != "P2" and leader != "": 
             # to do: new thread here?
-            network_server.send(f"P2 {leader} NEWOP {operation}{' break '}".encode('utf-8'))
+            network_server.send(f"P2 {leader} NEWOP {strip_ballot_num(ballot_number)} {operation}{' break '}".encode('utf-8'))
             temp_queue[ballot_number] = operation # until we get ACK
         elif leader == "":
             # to do: store operation in temp_queue?

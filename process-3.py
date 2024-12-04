@@ -34,7 +34,7 @@ def handle_prepare(network_server, src_node, dst_node, incoming_seq_num, incomin
     global leader
 
     if int(incoming_seq_num) >= ballot_number[0]:
-        ballot_number = (incoming_seq_num, ballot_number[1], ballot_number[2])
+        ballot_number = (int(incoming_seq_num), int(ballot_number[1]), int(ballot_number[2]))
         # ballot_number[0] = incoming_seq_num
         with lock:
             leader = src_node
@@ -86,7 +86,7 @@ def handle_decide(operation):
     global ballot_number
 
     with lock:
-        ballot_number = (ballot_number[0], ballot_number[1], ballot_number[2] + 1)
+        ballot_number = (int(ballot_number[0]), int(ballot_number[1]), int(ballot_number[2] + 1))
         # ballot_number[2] += 1
 
     LLM_handler = threading.Thread(target=handle_LLM_query, args=())
@@ -98,7 +98,7 @@ def handle_decide(operation):
         accepted_val = ""
 
 def handle_ack(incoming_seq_num, incoming_pid, incoming_op_num, operation):
-    del temp_queue[(incoming_seq_num, incoming_pid, incoming_op_num)]
+    del temp_queue[(int(incoming_seq_num), int(incoming_pid), int(incoming_op_num))]
 
 def select_best_answer(): # check?
     pass
@@ -143,7 +143,7 @@ def start_election(network_server):
     global ballot_number
 
     with lock:
-        ballot_number = (ballot_number[0] + 1, ballot_number[1], ballot_number[2])
+        ballot_number = (int(ballot_number[0] + 1), int(ballot_number[1]), int(ballot_number[2]))
         # ballot_number[0] += 1
     
     network_server.send(f"P3 P1 PREPARE {strip_ballot_num(ballot_number)}{' break '}".encode('utf-8'))
@@ -268,7 +268,7 @@ def handle_user_input(s3, network_server):
                 leader_queue.append(operation)
         elif leader != "P3" and leader != "": 
             # to do: new thread here?
-            network_server.send(f"P3 {leader} NEWOP {operation}{' break '}".encode('utf-8'))
+            network_server.send(f"P3 {leader} NEWOP {strip_ballot_num(ballot_number)} {operation}{' break '}".encode('utf-8'))
             temp_queue[ballot_number] = operation # until we get ACK
         elif leader == "":
             # to do: store operation in temp_queue?
