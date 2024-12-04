@@ -11,7 +11,6 @@ accepted_val = ""
 op_log = []
 leader_queue = []
 temp_queue = {} # operations that we need to do when we become leader (which timed out previously)
-processed_operations = set() # track processed operations
 
 promise_count = 0
 accepted_count = 0
@@ -119,24 +118,25 @@ def handle_leader_queue(network_server):
         while True:
             semaphore.acquire()
             operation = leader_queue.pop(0)
-            if operation not in processed_operations:
-                processed_operations.add(operation)
-                network_server.send(f"P3 P1 ACCEPT {strip_ballot_num(ballot_number)} {operation}{' break '}".encode('utf-8'))
-                network_server.send(f"P3 P2 ACCEPT {strip_ballot_num(ballot_number)} {operation}{' break '}".encode('utf-8'))
-                print(f"\nSENT:\n P3 P1 ACCEPT {strip_ballot_num(ballot_number)} {operation}")
-                print(f"\nSENT:\n P3 P2 ACCEPT {strip_ballot_num(ballot_number)} {operation}")
+            network_server.send(f"P3 P1 ACCEPT {strip_ballot_num(ballot_number)} {operation}{' break '}".encode('utf-8'))
+            network_server.send(f"P3 P2 ACCEPT {strip_ballot_num(ballot_number)} {operation}{' break '}".encode('utf-8'))
+            print(f"\nSENT:\n P3 P1 ACCEPT {strip_ballot_num(ballot_number)} {operation}")
+            print(f"\nSENT:\n P3 P2 ACCEPT {strip_ballot_num(ballot_number)} {operation}")
 
-                global accepted_count
-                while True:
-                    if accepted_count >= 1:
-                        network_server.send(f"P3 P1 DECIDE {strip_ballot_num(ballot_number)} {operation}{' break '}".encode('utf-8'))
-                        network_server.send(f"P3 P2 DECIDE {strip_ballot_num(ballot_number)} {operation}{' break '}".encode('utf-8'))
-                        print(f"\nSENT:\n P3 P1 DECIDE {strip_ballot_num(ballot_number)} {operation}")
-                        print(f"\nSENT:\n P3 P2 DECIDE {strip_ballot_num(ballot_number)} {operation}")
-                        decide_handler = threading.Thread(target=handle_decide, args=(operation,))
-                        decide_handler.start()
-                        break
-                    # to do: empty processed operations
+            global accepted_count
+            while True:
+                if accepted_count >= 1:
+                    network_server.send(f"P3 P1 DECIDE {strip_ballot_num(ballot_number)} {operation}{' break '}".encode('utf-8'))
+                    network_server.send(f"P3 P2 DECIDE {strip_ballot_num(ballot_number)} {operation}{' break '}".encode('utf-8'))
+                    print(f"\nSENT:\n P3 P1 DECIDE {strip_ballot_num(ballot_number)} {operation}")
+                    print(f"\nSENT:\n P3 P2 DECIDE {strip_ballot_num(ballot_number)} {operation}")
+
+                    with lock:
+                        accepted_count = 0
+
+                    decide_handler = threading.Thread(target=handle_decide, args=(operation,))
+                    decide_handler.start()
+                    break
 
 def new_op_to_queue(network_server, src_node, dst_node, incoming_seq_num, incoming_pid, incoming_op_num, operation):
     if leader == "P3":
@@ -180,7 +180,7 @@ def handle_server_input(s3, network_server):
             for message in messages:
                 if not message:
                     continue
-                print(f"NEW MESSAGE: \n{message}")
+                print(f"\nNEW MESSAGE:\n {message}")
 
                 response_split = message.split(" ")
                 if response_split[0] == "EXIT":
