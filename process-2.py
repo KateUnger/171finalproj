@@ -194,7 +194,7 @@ def handle_server_input(s2, network_server):
                     accepted_seq_id = response_split[6]
                     accepted_pid = response_split[7]
                     accepted_op_num = response_split[8]
-                    spliced_op = spliced_op.replace(f"{src_node} {dst_node} {incoming_seq_num} {incoming_pid} {incoming_op_num} {accepted_seq_id} {accepted_pid} {accepted_op_num}", "").replace("PROMISE ", "")
+                    spliced_op = spliced_op.replace(f"{src_node} {dst_node} PROMISE {incoming_seq_num} {incoming_pid} {incoming_op_num} {accepted_seq_id} {accepted_pid} {accepted_op_num}", "")
                     print(f"in {spliced_op}")
                     promise_handler = threading.Thread(target=handle_promise, args=(spliced_op,))
                     promise_handler.start()
@@ -203,8 +203,7 @@ def handle_server_input(s2, network_server):
                     incoming_seq_num = response_split[3]
                     incoming_pid = response_split[4]
                     incoming_op_num = response_split[5]
-                    spliced_op = spliced_op.replace(f"{src_node} {dst_node} {incoming_seq_num} {incoming_pid} {incoming_op_num} ", "").replace("ACCEPT ", "")
-                    print("accept spliced: ", spliced_op)
+                    spliced_op = spliced_op.replace(f"{src_node} {dst_node} ACCEPT {incoming_seq_num} {incoming_pid} {incoming_op_num} ", "")
                     accept_handler = threading.Thread(target=handle_accept, args=(network_server, src_node, dst_node, incoming_seq_num, incoming_pid, incoming_op_num, spliced_op))
                     accept_handler.start()
                 
@@ -212,7 +211,7 @@ def handle_server_input(s2, network_server):
                     incoming_seq_num = response_split[3]
                     incoming_pid = response_split[4]
                     incoming_op_num = response_split[5]
-                    spliced_op = spliced_op.replace(f"{src_node} {dst_node} {incoming_seq_num} {incoming_pid} {incoming_op_num} ", "").replace("ACCEPTED ", "")
+                    spliced_op = spliced_op.replace(f"{src_node} {dst_node} ACCEPTED {incoming_seq_num} {incoming_pid} {incoming_op_num} ", "")
                     accepted_handler = threading.Thread(target=handle_accepted, args=())
                     accepted_handler.start()
                 
@@ -220,7 +219,7 @@ def handle_server_input(s2, network_server):
                     incoming_seq_num = response_split[3]
                     incoming_pid = response_split[4]
                     incoming_op_num = response_split[5]
-                    spliced_op = spliced_op.replace(f"{src_node} {dst_node} {incoming_seq_num} {incoming_pid} {incoming_op_num} ", "").replace("DECIDE ", "")
+                    spliced_op = spliced_op.replace(f"{src_node} {dst_node} DECIDE {incoming_seq_num} {incoming_pid} {incoming_op_num} ", "")
                     decide_handler = threading.Thread(target=handle_decide, args=(spliced_op,))
                     decide_handler.start()
 

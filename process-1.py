@@ -113,8 +113,6 @@ def handle_LLM_query():
 
 def handle_leader_queue(network_server):
         # to do: add to the end of the leader_queue or set equal to temp_queue?
-        
-        print("EXTEND!!")
         leader_queue.extend(temp_queue.values())
 
         while True:
@@ -122,10 +120,7 @@ def handle_leader_queue(network_server):
             # print("leader_queue: ", leader_queue)
             operation = leader_queue.pop(0)
             if operation not in processed_operations:
-                # print("operation not in processed ops already")
                 processed_operations.add(operation)
-                # print("leader queue after pop: ", leader_queue)
-                print("TEST: ", operation)
                 network_server.send(f"P1 P2 ACCEPT {strip_ballot_num(ballot_number)} {operation}{' break '}".encode('utf-8'))
                 network_server.send(f"P1 P3 ACCEPT {strip_ballot_num(ballot_number)} {operation}{' break '}".encode('utf-8'))
 
@@ -182,7 +177,7 @@ def handle_server_input(s1, network_server):
             for message in messages:
                 if not message:
                     continue
-                print(f"recieved {message}")
+                print(f"NEW MESSAGE: \n{message}")
 
                 response_split = message.split(" ")
                 if response_split[0] == "EXIT":
@@ -207,7 +202,7 @@ def handle_server_input(s1, network_server):
                     accepted_seq_id = response_split[6]
                     accepted_pid = response_split[7]
                     accepted_op_num = response_split[8]
-                    spliced_op = spliced_op.replace(f"{src_node} {dst_node} {incoming_seq_num} {incoming_pid} {incoming_op_num} {accepted_seq_id} {accepted_pid} {accepted_op_num}", "").replace("PROMISE ", "")
+                    spliced_op = spliced_op.replace(f"{src_node} {dst_node} PROMISE {incoming_seq_num} {incoming_pid} {incoming_op_num} {accepted_seq_id} {accepted_pid} {accepted_op_num}", "")
                     # print(f"in {spliced_op}")
                     promise_handler = threading.Thread(target=handle_promise, args=(spliced_op,))
                     promise_handler.start()
@@ -216,8 +211,8 @@ def handle_server_input(s1, network_server):
                     incoming_seq_num = response_split[3]
                     incoming_pid = response_split[4]
                     incoming_op_num = response_split[5]
-                    spliced_op = spliced_op.replace(f"{src_node} {dst_node} {incoming_seq_num} {incoming_pid} {incoming_op_num} ", "").replace("ACCEPT ", "")
-                    print("accept spliced: ", spliced_op)
+                    spliced_op = spliced_op.replace(f"{src_node} {dst_node} ACCEPT {incoming_seq_num} {incoming_pid} {incoming_op_num} ", "")
+                    print("accept before spliced: ", spliced_op)
                     accept_handler = threading.Thread(target=handle_accept, args=(network_server, src_node, dst_node, incoming_seq_num, incoming_pid, incoming_op_num, spliced_op))
                     accept_handler.start()
                 
@@ -225,8 +220,6 @@ def handle_server_input(s1, network_server):
                     incoming_seq_num = response_split[3]
                     incoming_pid = response_split[4]
                     incoming_op_num = response_split[5]
-                    print("accepted: src = ", src_node, " dst = ", dst_node)
-                    print("accepted before spliced = ", spliced_op)
                     spliced_op = spliced_op.replace(f"{src_node} {dst_node} ACCEPTED {incoming_seq_num} {incoming_pid} {incoming_op_num} ", "")
                     print("accepted spliced: ", spliced_op)
                     accepted_handler = threading.Thread(target=handle_accepted, args=())
@@ -236,21 +229,18 @@ def handle_server_input(s1, network_server):
                     incoming_seq_num = response_split[3]
                     incoming_pid = response_split[4]
                     incoming_op_num = response_split[5]
-                    spliced_op = spliced_op.replace(f"{src_node} {dst_node} {incoming_seq_num} {incoming_pid} {incoming_op_num} ", "").replace("DECIDE ", "")
+                    spliced_op = spliced_op.replace(f"{src_node} {dst_node} DECIDE {incoming_seq_num} {incoming_pid} {incoming_op_num} ", "")
                     decide_handler = threading.Thread(target=handle_decide, args=(spliced_op,))
                     decide_handler.start()
 
                 elif consensus_op == "ANSWER": # ANSWER {answer} - getting answers from other nodes
                     pass
 
-                elif consensus_op == "NEWOP":
+                elif consensus_op == "NEWOP": # To do: FIX SPLICED OP PARSING!!!!!!!!!!
                     incoming_seq_num = response_split[3]
-                    print("1 ", incoming_seq_num)
                     incoming_pid = response_split[4]
-                    print("2 ", incoming_pid)
                     incoming_op_num = response_split[5]
-                    print("3 ", incoming_op_num)
-                    spliced_op = spliced_op.replace(f"{src_node} {dst_node} {incoming_seq_num} {incoming_pid} {incoming_op_num} ", "").replace("NEWOP ", "")
+                    spliced_op = spliced_op.replace(f"{src_node} {dst_node} NEWOP {incoming_seq_num} {incoming_pid} {incoming_op_num} ", "")
                     print("spliced: ", spliced_op)
                     newop_handler = threading.Thread(target=new_op_to_queue, args=(network_server, src_node, dst_node, incoming_seq_num, incoming_pid, incoming_op_num, spliced_op))
                     newop_handler.start()
