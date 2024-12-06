@@ -151,7 +151,7 @@ def select_best_answer(network_server, context_id, query_src, response, ballot_n
 
     start_time = time.time()
     if query_src == "P1":
-        contexts[context_id] += f"\nResponse {answer_count + 1}: {response}"
+        contexts[context_id] += f"\nResponse: {response}"
         answer_count_map[int(ballot_number[0]), int(ballot_number[1]), int(ballot_number[2])] = 0
         while True:
             if answer_count_map[int(ballot_number[0]), int(ballot_number[1]), int(ballot_number(2))] == 2:
