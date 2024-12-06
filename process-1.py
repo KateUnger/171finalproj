@@ -17,9 +17,9 @@ leader_queue = [] # [ [operation, originating proces], [], .... []]
 temp_queue = {} # operations that we need to do when we become leader (which timed out previously), {ballot_number: [operation, originating process]}
 contexts = {}
 
-promise_count = 0
+promise_count_map = {}
 accepted_count_map = {}
-answer_count = 0
+answer_count_map = {}
 
 accepted_condition = threading.Condition()
 semaphore = Semaphore(1)
@@ -60,16 +60,16 @@ def handle_prepare(network_server, src_node, dst_node, incoming_seq_num, incomin
             network_server.send(f"{dst_node} {src_node} NEWOP {temp_ballot_num[0]} {temp_ballot_num[1]} {temp_ballot_num[2]} {temp_op[0]}{' break '}".encode('utf-8'))
             print(f"\nSENT:\n {dst_node} {src_node} NEWOP {temp_ballot_num[0]} {temp_ballot_num[1]} {temp_ballot_num[2]} {temp_op[0]}")
 
-def handle_promise(incoming_op_log):
+def handle_promise(incoming_op_log, ballot_number):
     # to do: decide how to update the local log with the log recieved from nodes
     global op_log
-    global promise_count
+    global promise_count_map
     if('[]' not in incoming_op_log):
         op_log.append(incoming_op_log) 
     print("op_log: ", op_log)
     
     with lock:
-        promise_count += 1
+        promise_count_map[int(ballot_number[0]), int(ballot_number[1]), int(ballot_number[2])] += 1
 
 def handle_accept(network_server, src_node, dst_node, incoming_seq_num, incoming_pid, incoming_op_num, operation):
     global accepted_num
@@ -84,6 +84,7 @@ def handle_accept(network_server, src_node, dst_node, incoming_seq_num, incoming
             accepted_val = operation
 
 def handle_accepted(incoming_seq_num, incoming_pid, incoming_op_num): 
+    global accepted_count_map
     accepted_count_map[int(incoming_seq_num), int(incoming_pid), int(incoming_op_num)] += 1
 
 def handle_decide(network_server, operation, query_src):
@@ -111,11 +112,11 @@ def handle_decide(network_server, operation, query_src):
         case "query":
             context_id = operation_split[1]
             if context_id not in contexts:
-                print(f"ERROR: Context ID {context_id} does not exist")
+                print(f"ERROR: Context ID {context_id} does not exist") # TODO delete from context if invalid command
             else:
                 query = spliced_op.replace(f"query {context_id} ", "")
                 print(f"sending {query} to LLM")
-                LLM_handler = threading.Thread(target=handle_LLM_query, args=(network_server, query_src, context_id, query,))
+                LLM_handler = threading.Thread(target=handle_LLM_query, args=(network_server, query_src, context_id, query,ballot_number))
                 LLM_handler.start()
         case "choose":
             context_id = operation_split[1]
@@ -139,22 +140,21 @@ def handle_decide(network_server, operation, query_src):
 def handle_ack(incoming_seq_num, incoming_pid, incoming_op_num, operation):
     del temp_queue[(int(incoming_seq_num), int(incoming_pid), int(incoming_op_num))]
 
-def handle_answer(context_id, response):
-    global answer_count
-    answer_count += 1
+def handle_answer(context_id, response, ballot_number):
+    global answer_count_map
+    answer_count_map[int(ballot_number[0]), int(ballot_number[1]), int(ballot_number(2))] += 1
     # append response to the context
-    contexts[context_id] += f"\nResponse {answer_count + 1}: {response}" 
 
-def select_best_answer(network_server, context_id, query_src, response): 
+def select_best_answer(network_server, context_id, query_src, response, ballot_number): 
     print("selecting best answer")
-    global answer_count
+    global answer_count_map
 
     start_time = time.time()
     if query_src == "P1":
         contexts[context_id] += f"\nResponse {answer_count + 1}: {response}"
+        answer_count_map[int(ballot_number[0]), int(ballot_number[1]), int(ballot_number[2])] = 0
         while True:
-            if answer_count == 2:
-                answer_count = 0
+            if answer_count_map[int(ballot_number[0]), int(ballot_number[1]), int(ballot_number(2))] == 2:
                 print("Select one of the following responses for your query:")
                 print(contexts[context_id])
                 print("*********")
@@ -181,27 +181,27 @@ def select_best_answer(network_server, context_id, query_src, response):
                 break
             elif time.time() - start_time > 10:
                 print(f"Timeout reached: proceed without all responses for context {context_id}")
-                answer_count = 0
                 break
     else:
         network_server.send(f"P1 {query_src} ANSWER {context_id} {response}{' break '}".encode('utf-8'))
         print("send our LLM answer to the query originating process")
         print(f"\nSENT:\n P1 {query_src} ANSWER {context_id} {response}")
 
-def handle_LLM_query(network_server, query_src, context_id, query):
+def handle_LLM_query(network_server, query_src, context_id, query, ballot_number):
     print("handling LLM query")
     # to do: change so that it takes in the entire context, not just the the current query
     contexts[context_id] += f"\nQuery: {query}"
     response = (model.generate_content(contents=query, generation_config={"temperature": 1.2})).text
     print(f"LLM response for \"{query}\": {response}")
 
-    select_answer_handler = threading.Thread(target=select_best_answer, args=(network_server, context_id, query_src, response,))
+    select_answer_handler = threading.Thread(target=select_best_answer, args=(network_server, context_id, query_src, response,ballot_number))
     select_answer_handler.start()
 
     # print(response.text)
     # print("LLM query: ", query)
 
 def handle_leader_queue(network_server):
+        global accepted_count_map
         # to do: add to the end of the leader_queue or set equal to temp_queue?
         leader_queue.extend(temp_queue.values())
 
@@ -246,15 +246,15 @@ def start_election(network_server):
     print(f"\nSENT:\n P1 P2 PREPARE {strip_ballot_num(ballot_number)}")
     print(f"\nSENT:\n P1 P3 PREPARE {strip_ballot_num(ballot_number)}")
 
-    global promise_count
+    global promise_count_map
+    promise_count_map[int(ballot_number[0]), int(ballot_number[1]), int(ballot_number[2])] = 0
     while True:
-        if promise_count >=1 :
+        if promise_count_map[int(ballot_number[0]), int(ballot_number[1]), int(ballot_number[2])] >=1 :
             global leader
             with lock:
                 leader = "P1"
                 print("\nP1 is the leader")
                 leader_queue.clear()
-                promise_count = 0
                 leader_queue_handler = threading.Thread(target=handle_leader_queue, args=(network_server,))
                 leader_queue_handler.start()
                 break
@@ -294,7 +294,7 @@ def handle_server_input(s1, network_server):
                     accepted_pid = response_split[7]
                     accepted_op_num = response_split[8]
                     spliced_op = spliced_op.replace(f"{src_node} {dst_node} PROMISE {incoming_seq_num} {incoming_pid} {incoming_op_num} {accepted_seq_id} {accepted_pid} {accepted_op_num}", "")
-                    promise_handler = threading.Thread(target=handle_promise, args=(spliced_op,))
+                    promise_handler = threading.Thread(target=handle_promise, args=(spliced_op,(incoming_seq_num, incoming_pid, incoming_op_num)))
                     promise_handler.start()
                 
                 elif consensus_op == "ACCEPT": # ACCEPT {ballot_num} {operation}
@@ -324,7 +324,7 @@ def handle_server_input(s1, network_server):
                 elif consensus_op == "ANSWER": # ANSWER {context_id} {answer} - getting answers from other nodes, {dst_node} is the originating process
                     context_id = response_split[3]
                     spliced_op = spliced_op.replace(f"{src_node} {dst_node} ANSWER {context_id} ", "")
-                    answer_handler = threading.Thread(target=handle_answer, args=(context_id, spliced_op))
+                    answer_handler = threading.Thread(target=handle_answer, args=(context_id, spliced_op, (incoming_seq_num, incoming_pid, incoming_op_num)))
                     answer_handler.start()
 
                 elif consensus_op == "NEWOP": # NEWOP {ballot_num} {operation}
