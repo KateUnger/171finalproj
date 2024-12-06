@@ -4,6 +4,7 @@ import threading
 import sys, os
 from threading import Semaphore
 import google.generativeai as genai
+import apikey
 
 model = genai.GenerativeModel("gemini-1.5-flash")
 
@@ -405,7 +406,7 @@ def start_client():
     user_handler = threading.Thread(target=handle_user_input, args=(s1, network_server,))
     user_handler.start()
 
-    genai.configure(api_key="AIzaSyBvNMTkfjnaYvIJqnX1dJHd8Ra-JER9v8I")
+    genai.configure(api_key=apikey.APIKEY)
 
 if __name__ == "__main__":
     start_client()
