@@ -7,7 +7,7 @@ import google.generativeai as genai
 import apikey
 
 model = genai.GenerativeModel("gemini-1.5-flash")
-
+# TODO change when copy and pasting!
 ballot_number = (0, 1, 0) # <seq_num, pid, op_num>
 leader = "" # initialize leader to empty string, to be changed once leader has been elected
 accepted_num = (0, 0, 0)
@@ -37,6 +37,7 @@ def strip_ballot_num(incoming_ballot):
 def handle_prepare(network_server, src_node, dst_node, incoming_seq_num, incoming_pid, incoming_op_num):
     global ballot_number
     global leader
+    leader = ""
 
     if int(incoming_seq_num) > ballot_number[0]: # to do: > or >=
         ballot_number = (int(incoming_seq_num), int(ballot_number[1]), ballot_number[2])
@@ -60,6 +61,10 @@ def handle_prepare(network_server, src_node, dst_node, incoming_seq_num, incomin
             network_server.send(f"{dst_node} {src_node} NEWOP {temp_ballot_num[0]} {temp_ballot_num[1]} {temp_ballot_num[2]} {temp_op[0]}{' break '}".encode('utf-8'))
             print(f"\nSENT:\n {dst_node} {src_node} NEWOP {temp_ballot_num[0]} {temp_ballot_num[1]} {temp_ballot_num[2]} {temp_op[0]}")
 
+    elif (leader == ""):
+        election_handler = threading.Thread(target=start_election, args=(network_server,))
+        election_handler.start()
+
 def handle_promise(incoming_op_log, ballot_number):
     # to do: decide how to update the local log with the log recieved from nodes
     global op_log
@@ -69,7 +74,10 @@ def handle_promise(incoming_op_log, ballot_number):
     print("op_log: ", op_log)
     
     with lock:
-        promise_count_map[int(ballot_number[0]), int(ballot_number[1]), int(ballot_number[2])] += 1
+        if (int(ballot_number[0]), int(ballot_number[1]), int(ballot_number[2])) in promise_count_map:
+            promise_count_map[int(ballot_number[0]), int(ballot_number[1]), int(ballot_number[2])] += 1
+        else:
+            promise_count_map[int(ballot_number[0]), int(ballot_number[1]), int(ballot_number[2])] = 1
 
 def handle_accept(network_server, src_node, dst_node, incoming_seq_num, incoming_pid, incoming_op_num, operation):
     global accepted_num
@@ -85,7 +93,10 @@ def handle_accept(network_server, src_node, dst_node, incoming_seq_num, incoming
 
 def handle_accepted(incoming_seq_num, incoming_pid, incoming_op_num): 
     global accepted_count_map
-    accepted_count_map[int(incoming_seq_num), int(incoming_pid), int(incoming_op_num)] += 1
+    if (int(incoming_seq_num), int(incoming_pid), int(incoming_op_num)) in accepted_count_map:
+        accepted_count_map[int(incoming_seq_num), int(incoming_pid), int(incoming_op_num)] += 1
+    else:
+        accepted_count_map[int(incoming_seq_num), int(incoming_pid), int(incoming_op_num)] = 1
 
 def handle_decide(network_server, operation, query_src):
     print("originating node: ", query_src)
@@ -142,7 +153,11 @@ def handle_ack(incoming_seq_num, incoming_pid, incoming_op_num, operation):
 
 def handle_answer(context_id, response, ballot_number):
     global answer_count_map
-    answer_count_map[int(ballot_number[0]), int(ballot_number[1]), int(ballot_number(2))] += 1
+    if (int(ballot_number[0]), int(ballot_number[1]), int(ballot_number[2])) in answer_count_map:
+        answer_count_map[int(ballot_number[0]), int(ballot_number[1]), int(ballot_number[2])] += 1
+    else:
+        answer_count_map[int(ballot_number[0]), int(ballot_number[1]), int(ballot_number[2])] = 1
+
     # append response to the context
 
 def select_best_answer(network_server, context_id, query_src, response, ballot_number): 
@@ -154,7 +169,7 @@ def select_best_answer(network_server, context_id, query_src, response, ballot_n
         contexts[context_id] += f"\nResponse: {response}"
         answer_count_map[int(ballot_number[0]), int(ballot_number[1]), int(ballot_number[2])] = 0
         while True:
-            if answer_count_map[int(ballot_number[0]), int(ballot_number[1]), int(ballot_number(2))] == 2:
+            if answer_count_map[int(ballot_number[0]), int(ballot_number[1]), int(ballot_number[2])] == 2:
                 print("Select one of the following responses for your query:")
                 print(contexts[context_id])
                 print("*********")
@@ -207,6 +222,8 @@ def handle_leader_queue(network_server):
 
         while True:
             semaphore.acquire()
+            if len(leader_queue) == 0:
+                continue
             leader_op = leader_queue.pop(0)
             operation = leader_op[0]
             query_src = leader_op[1]
@@ -230,8 +247,11 @@ def handle_leader_queue(network_server):
 def new_op_to_queue(network_server, src_node, dst_node, incoming_seq_num, incoming_pid, incoming_op_num, operation):
     if leader == "P1":
         leader_queue.append([operation, src_node])
-        semaphore.release()
-        # network_server.send(f"{dst_node} {src_node} ACK {incoming_seq_num} {incoming_pid} {incoming_op_num} {operation}{' break '}".encode('utf-8'))
+        network_server.send(f"{dst_node} {src_node} ACK {incoming_seq_num} {incoming_pid} {incoming_op_num} {operation}{' break '}".encode('utf-8'))
+    elif leader == "":
+        election_handler = threading.Thread(target=start_election, args=(network_server,))
+        election_handler.start()
+    semaphore.release()
         # print(f"\nSENT:\n {dst_node} {src_node} ACK {incoming_seq_num} {incoming_pid} {incoming_op_num} {operation}")
 
 def start_election(network_server):
@@ -385,7 +405,7 @@ def handle_user_input(s1, network_server):
 
 def start_client():
     s1 = socket.socket(socket.AF_INET, socket.SOCK_STREAM) 
-    s1.bind(('127.0.0.1', 9005)) 
+    s1.bind(('127.0.0.1', 9001)) 
     s1.listen(3)
 
     network_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM) 
