@@ -83,7 +83,7 @@ def do_exit():
 #failLink <src> <dst> = Comm link fil between src and dst nodes (no msgs betwn the nodes)
 def do_fail_link(message):
     global lock
-    message_split = message.split("")
+    message_split = message.split(" ")
     src_node = message_split[1]
     dst_node = message_split[2]
     #Check message for input error
@@ -99,7 +99,7 @@ def do_fail_link(message):
 #fixLink <src> <dst> = Counter to failLink
 def do_fix_link(message):
     global lock
-    message_split = message.split("")
+    message_split = message.split(" ")
     src_node = message_split[1]
     dst_node = message_split[2]
     #Check message for input error
@@ -115,7 +115,7 @@ def do_fix_link(message):
 #failNode <nodeNum> = Kill node (crash failure) and must restart node after
 def do_fail_node(message):
     global lock
-    message_split = message.split("")
+    message_split = message.split(" ")
     node = message_split[1]
     #Check message for input error
     if is_not_node(node):
@@ -141,7 +141,7 @@ def do_input():
             operation = terminal_msg.split(" ")[0]
             #If message is "exit" then begin exit process
             #Otherwise, create thread to handle operation
-            match terminal_msg: 
+            match operation: 
                 case "exit":
                     do_exit()
                 case "failLink": #Comm link fil between src and dst nodes (no msgs betwn the nodes)

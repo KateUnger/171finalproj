@@ -7,7 +7,7 @@ import google.generativeai as genai
 import apikey
 
 model = genai.GenerativeModel("gemini-1.5-flash")
-
+# TODO change when copy and pasting!
 ballot_number = (0, 1, 0) # <seq_num, pid, op_num>
 leader = "" # initialize leader to empty string, to be changed once leader has been elected
 accepted_num = (0, 0, 0)
@@ -37,6 +37,7 @@ def strip_ballot_num(incoming_ballot):
 def handle_prepare(network_server, src_node, dst_node, incoming_seq_num, incoming_pid, incoming_op_num):
     global ballot_number
     global leader
+    leader = ""
 
     if int(incoming_seq_num) > ballot_number[0]: # to do: > or >=
         ballot_number = (int(incoming_seq_num), int(ballot_number[1]), ballot_number[2])
@@ -59,6 +60,10 @@ def handle_prepare(network_server, src_node, dst_node, incoming_seq_num, incomin
         for temp_ballot_num, temp_op in temp_queue.items():
             network_server.send(f"{dst_node} {src_node} NEWOP {temp_ballot_num[0]} {temp_ballot_num[1]} {temp_ballot_num[2]} {temp_op[0]}{' break '}".encode('utf-8'))
             print(f"\nSENT:\n {dst_node} {src_node} NEWOP {temp_ballot_num[0]} {temp_ballot_num[1]} {temp_ballot_num[2]} {temp_op[0]}")
+            
+     elif (leader == ""):
+        election_handler = threading.Thread(target=start_election, args=(network_server,))
+        election_handler.start()
 
 def handle_promise(incoming_op_log, incoming_seq_num, incoming_pid, incoming_op_num):
     # to do: decide how to update the local log with the log recieved from nodes
@@ -69,7 +74,11 @@ def handle_promise(incoming_op_log, incoming_seq_num, incoming_pid, incoming_op_
     print("op_log: ", op_log)
     
     with lock:
-        promise_count_map[int(incoming_seq_num), int(incoming_pid), int(incoming_op_num)] += 1
+        key = int(incoming_seq_num), int(incoming_pid), int(incoming_op_num)
+        if key not in promise_count_map: 
+          promise_count_map[key] = 0
+        promise_count_map[key] += 1
+#         promise_count_map[int(incoming_seq_num), int(incoming_pid), int(incoming_op_num)] += 1
         # promise_count_map[int(ballot_number[0]), int(ballot_number[1]), int(ballot_number[2])] += 1
 
 def handle_accept(network_server, src_node, dst_node, incoming_seq_num, incoming_pid, incoming_op_num, operation):
@@ -86,7 +95,6 @@ def handle_accept(network_server, src_node, dst_node, incoming_seq_num, incoming
 
 def handle_accepted(incoming_seq_num, incoming_pid, incoming_op_num): 
     global accepted_count_map
-
     key = int(incoming_seq_num), int(incoming_pid), int(incoming_op_num)
     print(key)
     if key not in accepted_count_map: 
@@ -217,6 +225,8 @@ def handle_leader_queue(network_server):
 
         while True:
             semaphore.acquire()
+            if len(leader_queue) == 0:
+                continue
             leader_op = leader_queue.pop(0)
             operation = leader_op[0]
             query_src = leader_op[1]
@@ -251,8 +261,11 @@ def handle_leader_queue(network_server):
 def new_op_to_queue(network_server, src_node, dst_node, incoming_seq_num, incoming_pid, incoming_op_num, operation):
     if leader == "P1":
         leader_queue.append([operation, src_node])
-        semaphore.release()
-        # network_server.send(f"{dst_node} {src_node} ACK {incoming_seq_num} {incoming_pid} {incoming_op_num} {operation}{' break '}".encode('utf-8'))
+        network_server.send(f"{dst_node} {src_node} ACK {incoming_seq_num} {incoming_pid} {incoming_op_num} {operation}{' break '}".encode('utf-8'))
+    elif leader == "":
+        election_handler = threading.Thread(target=start_election, args=(network_server,))
+        election_handler.start()
+    semaphore.release()
         # print(f"\nSENT:\n {dst_node} {src_node} ACK {incoming_seq_num} {incoming_pid} {incoming_op_num} {operation}")
 
 def start_election(network_server):
