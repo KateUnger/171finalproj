@@ -10,10 +10,10 @@ accepted_num = (0, 0, 0)
 accepted_val = ""
 op_log = []
 leader_queue = []
+accepted_count_map = {}
 temp_queue = {} # operations that we need to do when we become leader (which timed out previously)
 
-promise_count = 0
-accepted_count = 0
+promise_count = 0 # add map 
 
 accepted_condition = threading.Condition()
 semaphore = Semaphore(1)
@@ -77,12 +77,8 @@ def handle_accept(network_server, src_node, dst_node, incoming_seq_num, incoming
             accepted_num = (incoming_seq_num, incoming_pid, incoming_op_num)
             accepted_val = operation
 
-def handle_accepted():
-    global accepted_count
-    with accepted_condition:
-        accepted_count += 1
-        if accepted_count >= 1:
-            accepted_condition.notify_all()
+def handle_accepted(incoming_seq_num, incoming_pid, incoming_op_num): 
+    accepted_count_map[int(incoming_seq_num), int(incoming_pid), int(incoming_op_num)] += 1
 
 def handle_decide(operation):
     global accepted_num
@@ -123,16 +119,13 @@ def handle_leader_queue(network_server):
             print(f"\nSENT:\n P1 P2 ACCEPT {strip_ballot_num(ballot_number)} {operation}")
             print(f"\nSENT:\n P1 P3 ACCEPT {strip_ballot_num(ballot_number)} {operation}")
 
-            global accepted_count
+            accepted_count_map[int(ballot_number[0]),int(ballot_number[1]),int(ballot_number[2])] = 0
             while True:
-                if accepted_count >= 1:
+                if accepted_count_map[int(ballot_number[0]),int(ballot_number[1]),int(ballot_number[2])] >= 1:
                     network_server.send(f"P1 P2 DECIDE {strip_ballot_num(ballot_number)} {operation}{' break '}".encode('utf-8'))
                     network_server.send(f"P1 P3 DECIDE {strip_ballot_num(ballot_number)} {operation}{' break '}".encode('utf-8'))
                     print(f"\nSENT:\n P1 P2 DECIDE {strip_ballot_num(ballot_number)} {operation}")
                     print(f"\nSENT:\n P1 P3 DECIDE {strip_ballot_num(ballot_number)} {operation}")
-
-                    with lock:
-                        accepted_count = 0
 
                     decide_handler = threading.Thread(target=handle_decide, args=(operation,))
                     decide_handler.start()
@@ -142,8 +135,8 @@ def new_op_to_queue(network_server, src_node, dst_node, incoming_seq_num, incomi
     if leader == "P1":
         leader_queue.append(operation)
         semaphore.release()
-        network_server.send(f"{dst_node} {src_node} ACK {incoming_seq_num} {incoming_pid} {incoming_op_num} {operation}{' break '}".encode('utf-8'))
-        print(f"\nSENT:\n {dst_node} {src_node} ACK {incoming_seq_num} {incoming_pid} {incoming_op_num} {operation}")
+        # network_server.send(f"{dst_node} {src_node} ACK {incoming_seq_num} {incoming_pid} {incoming_op_num} {operation}{' break '}".encode('utf-8'))
+        # print(f"\nSENT:\n {dst_node} {src_node} ACK {incoming_seq_num} {incoming_pid} {incoming_op_num} {operation}")
 
 def start_election(network_server):
     print(f"starting election")
@@ -158,7 +151,6 @@ def start_election(network_server):
     print(f"\nSENT:\n P1 P3 PREPARE {strip_ballot_num(ballot_number)}")
 
     global promise_count
-    global accepted_count
     while True:
         if promise_count >=1 :
             global leader
@@ -167,7 +159,6 @@ def start_election(network_server):
                 print("\nP1 is the leader")
                 leader_queue.clear() # clear list of leader operations
                 promise_count = 0
-                accepted_count = 0
                 leader_queue_handler = threading.Thread(target=handle_leader_queue, args=(network_server,))
                 leader_queue_handler.start()
                 break
@@ -181,6 +172,7 @@ def handle_server_input(s1, network_server):
                 if not message:
                     continue
                 print(f"\nNEW MESSAGE:\n {message}")
+                time.sleep(3)
 
                 response_split = message.split(" ")
                 if response_split[0] == "EXIT":
@@ -222,7 +214,7 @@ def handle_server_input(s1, network_server):
                     incoming_pid = response_split[4]
                     incoming_op_num = response_split[5]
                     spliced_op = spliced_op.replace(f"{src_node} {dst_node} ACCEPTED {incoming_seq_num} {incoming_pid} {incoming_op_num} ", "")
-                    accepted_handler = threading.Thread(target=handle_accepted, args=())
+                    accepted_handler = threading.Thread(target=handle_accepted, args=(incoming_seq_num, incoming_pid, incoming_op_num))
                     accepted_handler.start()
                 
                 elif consensus_op == "DECIDE": # DECIDE {ballot_num} {operation}
