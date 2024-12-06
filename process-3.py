@@ -85,10 +85,10 @@ def handle_accept(network_server, src_node, dst_node, incoming_seq_num, incoming
 
 def handle_accepted():
     global accepted_count
-    with accepted_condition:
-        accepted_count += 1
-        if accepted_count >= 1:
-            accepted_condition.notify_all()
+    accepted_count += 1
+    if (accepted_count == 2):
+        accepted_count = 0
+    print(f"        incremented accepted_count: {accepted_count}")
 
 def handle_decide(network_server, operation, query_src):
     print("originating node: ", query_src)
@@ -235,8 +235,8 @@ def new_op_to_queue(network_server, src_node, dst_node, incoming_seq_num, incomi
     if leader == "P3":
         leader_queue.append([operation, src_node])
         semaphore.release()
-        network_server.send(f"{dst_node} {src_node} ACK {incoming_seq_num} {incoming_pid} {incoming_op_num} {operation} {' break '}".encode('utf-8'))
-        print(f"\nSENT:\n {dst_node} {src_node} ACK {incoming_seq_num} {incoming_pid} {incoming_op_num} {operation}")
+        # network_server.send(f"{dst_node} {src_node} ACK {incoming_seq_num} {incoming_pid} {incoming_op_num} {operation} {' break '}".encode('utf-8'))
+        # print(f"\nSENT:\n {dst_node} {src_node} ACK {incoming_seq_num} {incoming_pid} {incoming_op_num} {operation}")
 
 def start_election(network_server):
     print(f"starting election")
@@ -274,6 +274,7 @@ def handle_server_input(s3, network_server):
                 if not message:
                     continue
                 print(f"\nNEW MESSAGE:\n {message}")
+                time.sleep(3)
 
                 response_split = message.split(" ")
                 if response_split[0] == "EXIT":

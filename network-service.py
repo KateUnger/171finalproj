@@ -125,7 +125,7 @@ def do_fail_node(message):
         with lock:
             node_status[node] = False
         socket = connections[node]
-        print(f"SEND (to {node}) EXIT")
+        print(f"        SEND (to {node}) EXIT\n")
         socket.send(f"EXIT{' break '}".encode('utf-8'))
         with lock:
             del connections[node]
@@ -167,21 +167,14 @@ def send_msg(message):
     dst_node = message_split[1]
     #Check for input error (e.g. nodes are incorrect)
 
-    # print(f"connections: {connections}")
-    print(f"node_status: {node_status}")
-    print(f"links: {links}")
-
     if is_not_node(src_node) or is_not_node(dst_node):
         print("Incorrect Node ID")
         return
     #Check that link exists between node
-    print(link_works(src_node, dst_node))
-    print(node_alive(dst_node))
-    print(dst_node in connections)
     if link_works(src_node, dst_node) and node_alive(dst_node) and (dst_node in connections):
         #Send message to dst node
         dst_socket = connections[dst_node]
-        print("SEND " + str(message))
+        print("        SEND " + str(message) + "\n")
         dst_socket.send(f"{message}{' break '}".encode('utf-8'))
     else:
         if node_alive(src_node) and (src_node in connections):
@@ -189,7 +182,7 @@ def send_msg(message):
             #Add TIMEOUT key word after nodes but before operation and send back to src_node
             #e.g. P1 P3 TIMEOUT Prepare ...
             message_reordered = message.replace(f"{src_node} {dst_node}", f"{src_node} {dst_node} TIMEOUT")
-            print("SEND " + str(message_reordered))
+            print("        SEND " + str(message_reordered) + "\n")
             src_socket.send(f"{message_reordered}{' break '}".encode('utf-8'))
 
 
@@ -206,7 +199,7 @@ def handle_client(client_socket, addr):
             for message in messages:
                 if not message:
                     continue
-                print("NEW MESSAGE " + str(message))
+                # print("NEW MESSAGE " + str(message))
 
                 #todo add 3 second delay 
                 #Get src process id and check that it has been logged in connections dictionary
@@ -217,7 +210,6 @@ def handle_client(client_socket, addr):
                     change_node_links(message, True)
                 else:
                     #Send message to destination pid
-                    print("starting thread and sending message")
                     do_task_client_thread = threading.Thread(target=send_msg, args=(message,))
                     do_task_client_thread.start() 
         except:
