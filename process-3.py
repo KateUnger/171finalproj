@@ -7,8 +7,8 @@ import google.generativeai as genai
 import apikey
 
 model = genai.GenerativeModel("gemini-1.5-flash")
-##TODO Change when copy and pasting!
-ballot_number = (0, 3, 0) # <seq_num, pid, op_num>
+# TODO change when copy and pasting!
+ballot_number = (0, 1, 0) # <seq_num, pid, op_num>
 leader = "" # initialize leader to empty string, to be changed once leader has been elected
 accepted_num = (0, 0, 0)
 accepted_val = ""
@@ -60,11 +60,11 @@ def handle_prepare(network_server, src_node, dst_node, incoming_seq_num, incomin
         for temp_ballot_num, temp_op in temp_queue.items():
             network_server.send(f"{dst_node} {src_node} NEWOP {temp_ballot_num[0]} {temp_ballot_num[1]} {temp_ballot_num[2]} {temp_op[0]}{' break '}".encode('utf-8'))
             print(f"\nSENT:\n {dst_node} {src_node} NEWOP {temp_ballot_num[0]} {temp_ballot_num[1]} {temp_ballot_num[2]} {temp_op[0]}")
-    
+            
     elif (leader == ""):
-            election_handler = threading.Thread(target=start_election, args=(network_server,))
-            election_handler.start()
-          
+        election_handler = threading.Thread(target=start_election, args=(network_server,))
+        election_handler.start()
+
 def handle_promise(incoming_op_log, incoming_seq_num, incoming_pid, incoming_op_num):
     # to do: decide how to update the local log with the log recieved from nodes
     global op_log
@@ -78,7 +78,7 @@ def handle_promise(incoming_op_log, incoming_seq_num, incoming_pid, incoming_op_
         if key not in promise_count_map: 
           promise_count_map[key] = 0
         promise_count_map[key] += 1
-        # promise_count_map[int(incoming_seq_num), int(incoming_pid), int(incoming_op_num)] += 1
+#         promise_count_map[int(incoming_seq_num), int(incoming_pid), int(incoming_op_num)] += 1
         # promise_count_map[int(ballot_number[0]), int(ballot_number[1]), int(ballot_number[2])] += 1
 
 def handle_accept(network_server, src_node, dst_node, incoming_seq_num, incoming_pid, incoming_op_num, operation):
@@ -96,14 +96,12 @@ def handle_accept(network_server, src_node, dst_node, incoming_seq_num, incoming
 def handle_accepted(incoming_seq_num, incoming_pid, incoming_op_num): 
     global accepted_count_map
     key = int(incoming_seq_num), int(incoming_pid), int(incoming_op_num)
-    print(key)
+    # print(key)
     if key not in accepted_count_map: 
         accepted_count_map[key] = 0
     accepted_count_map[key] += 1
 
 def handle_decide(network_server, operation, query_src, incoming_seq_num, incoming_pid, incoming_op_num):
-    print("originating node: ", query_src)
-    print("in handle_decide")
     global accepted_num
     global accepted_val
     global ballot_number
@@ -134,8 +132,15 @@ def handle_decide(network_server, operation, query_src, incoming_seq_num, incomi
                 LLM_handler.start()
         case "choose":
             context_id = operation_split[1]
-            response = operation_split[2]
-            print(f"Got command to choose a response for {context_id}. The chosen response was: {response}")
+            response_num = int(operation_split[2])
+            print(f"Got command to choose a response for {context_id}. The chosen response number was: {response_num}")
+            context_data = contexts[context_id]
+            responses = context_data.split("Query:")[-1]
+            responses_parts = responses.split("\nResponse:")[1:]
+            chosen_response = responses_parts[response_num - 1]
+            print(f"chosen response: {chosen_response}")
+            # updated_context = context_data.split("\nResponse:")[0] + f"\nResponse: {chosen_response}"
+            # print(updated_context)
         case "view":
             context_id = operation_split[1]
             print(f"Context {context_id}: \n{contexts[context_id]}")
@@ -159,12 +164,13 @@ def handle_answer(context_id, response, incoming_seq_num, incoming_pid, incoming
     key = int(incoming_seq_num), int(incoming_pid), int(incoming_op_num)
     if key not in answer_count_map: 
         answer_count_map[key] = 0
-    print(f"answer_count_map: {int(incoming_seq_num)}, {int(incoming_pid)}, {int(incoming_op_num)}")
+    # print(f"answer_count_map: {int(incoming_seq_num)}, {int(incoming_pid)}, {int(incoming_op_num)}")
     answer_count_map[key] += 1
-    print(f"answer count map for {response} : {answer_count_map[key]}")
+    # print(f"answer count map for {response} : {answer_count_map[key]}")
+
+    contexts[context_id] += f"\nResponse: {response}"
 
 def select_best_answer(network_server, context_id, query_src, response, incoming_seq_num, incoming_pid, incoming_op_num): 
-    print("selecting best answer")
     global answer_count_map
 
     start_time = time.time()
@@ -173,29 +179,18 @@ def select_best_answer(network_server, context_id, query_src, response, incoming
         answer_count_map[int(incoming_seq_num), int(incoming_pid), int(incoming_op_num)] = 0
         while True:
             if answer_count_map[int(incoming_seq_num), int(incoming_pid), int(incoming_op_num)] == 2:
-                print("Select one of the following responses for your query:")
-                print(contexts[context_id])
-                print("*********")
+                print("Select one of the following responses for your query")
                 context_data = contexts[context_id]
-
-                lines = context_data.split("\n")
-                responses = []
-                query_found = False
-
-                for line in reversed(lines):
-                    if line.startswith("Response"):
-                        responses.append(line)
-                    elif not query_found:
-                        query_found = True
+                responses = context_data.split("Query:")[-1]
+                responses_parts = responses.split("\nResponse:")
+                print(context_data.split("Query:"))
+                print(responses_parts)
+                for i, text in enumerate(responses_parts):
+                    if i == 0: 
+                        print(f"Query: {text}")
                     else:
-                        break
-
-                if not responses:
-                    print(f"No responses found for context ID: {context_id}")
-                    break
+                        print(f"Response {i}: {text}")
                 
-                for response in reversed(responses):
-                    print(f"{response}")
                 break
             elif time.time() - start_time > 20:
                 print(f"Timeout reached: proceed without all responses for context {context_id}")
@@ -206,11 +201,9 @@ def select_best_answer(network_server, context_id, query_src, response, incoming
         print(f"\nSENT:\n P3 {query_src} ANSWER {incoming_seq_num} {incoming_pid} {incoming_op_num} {context_id} {response}")
 
 def handle_LLM_query(network_server, query_src, context_id, query, incoming_seq_num, incoming_pid, incoming_op_num):
-    print("handling LLM query")
     # to do: change so that it takes in the entire context, not just the the current query
     contexts[context_id] += f"\nQuery: {query}"
     response = (model.generate_content(contents=query, generation_config={"temperature": 1.2})).text
-    print(f"LLM response for \"{query}\": {response}")
 
     select_answer_handler = threading.Thread(target=select_best_answer, args=(network_server, context_id, query_src, response, incoming_seq_num, incoming_pid, incoming_op_num))
     select_answer_handler.start()
@@ -360,7 +353,7 @@ def handle_server_input(s1, network_server):
                     incoming_pid = response_split[4]
                     incoming_op_num = response_split[5]
                     context_id = response_split[6]
-                    spliced_op = spliced_op.replace(f"{src_node} {dst_node} ANSWER {context_id} ", "")
+                    spliced_op = spliced_op.replace(f"{src_node} {dst_node} ANSWER {incoming_seq_num} {incoming_pid} {incoming_op_num} {context_id} ", "")
                     answer_handler = threading.Thread(target=handle_answer, args=(context_id, spliced_op, incoming_seq_num, incoming_pid, incoming_op_num))
                     answer_handler.start()
 
@@ -420,7 +413,7 @@ def handle_user_input(s1, network_server):
 
 def start_client():
     s1 = socket.socket(socket.AF_INET, socket.SOCK_STREAM) 
-    s1.bind(('127.0.0.1', 9006)) 
+    s1.bind(('127.0.0.1', 9005)) 
     s1.listen(3)
 
     network_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM) 
