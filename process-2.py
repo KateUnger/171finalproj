@@ -61,9 +61,9 @@ def handle_prepare(network_server, src_node, dst_node, incoming_seq_num, incomin
             network_server.send(f"{dst_node} {src_node} NEWOP {temp_ballot_num[0]} {temp_ballot_num[1]} {temp_ballot_num[2]} {temp_op[0]}{' break '}".encode('utf-8'))
             print(f"\nSENT:\n {dst_node} {src_node} NEWOP {temp_ballot_num[0]} {temp_ballot_num[1]} {temp_ballot_num[2]} {temp_op[0]}")
     
-    elif (leader == ""):
-        election_handler = threading.Thread(target=start_election, args=(network_server,))
-        election_handler.start()
+    # elif (leader == ""):
+    #     election_handler = threading.Thread(target=start_election, args=(network_server,))
+    #     election_handler.start()
 
 def handle_promise(incoming_op_log, incoming_seq_num, incoming_pid, incoming_op_num):
     # to do: decide how to update the local log with the log recieved from nodes
@@ -95,8 +95,8 @@ def handle_accept(network_server, src_node, dst_node, incoming_seq_num, incoming
 
 def handle_accepted(incoming_seq_num, incoming_pid, incoming_op_num): 
     global accepted_count_map
-    key = int(incoming_seq_num), int(incoming_pid), int(incoming_op_num)
-    print(key)
+    key = (int(incoming_seq_num), int(incoming_pid), int(incoming_op_num))
+    print(f"Handle Accepted: key = {key}, key in map = {key in accepted_count_map}")
     if key not in accepted_count_map: 
         accepted_count_map[key] = 0
     accepted_count_map[key] += 1
@@ -170,9 +170,10 @@ def select_best_answer(network_server, context_id, query_src, response, incoming
     start_time = time.time()
     if query_src == "P2":
         contexts[context_id] += f"\nResponse: {response}"
-        answer_count_map[int(incoming_seq_num), int(incoming_pid), int(incoming_op_num)] = 0
+        this_ballot_num = int(incoming_seq_num), int(incoming_pid), int(incoming_op_num)
+        answer_count_map[this_ballot_num] = 0
         while True:
-            if answer_count_map[int(incoming_seq_num), int(incoming_pid), int(incoming_op_num)] == 2:
+            if answer_count_map[this_ballot_num] == 2:
                 print("Select one of the following responses for your query:")
                 print(contexts[context_id])
                 print("*********")
@@ -230,20 +231,16 @@ def handle_leader_queue(network_server):
             leader_op = leader_queue.pop(0)
             operation = leader_op[0]
             query_src = leader_op[1]
-            network_server.send(f"P2 P1 ACCEPT {strip_ballot_num(ballot_number)} {operation}{' break '}".encode('utf-8'))
-            network_server.send(f"P2 P3 ACCEPT {strip_ballot_num(ballot_number)} {operation}{' break '}".encode('utf-8'))
-            print(f"\nSENT:\n P2 P1 ACCEPT {strip_ballot_num(ballot_number)} {operation}")
-            print(f"\nSENT:\n P2 P3 ACCEPT {strip_ballot_num(ballot_number)} {operation}")
-            
-            stripped_ballot_num = strip_ballot_num(ballot_number).split(" ")
-            incoming_seq_num = stripped_ballot_num[0]
-            incoming_pid = stripped_ballot_num[1]
-            incoming_op_num = stripped_ballot_num[2]
+            this_ballot_num = (int(ballot_number[0]), int(ballot_number[1]), int(ballot_number[2]))
+            network_server.send(f"P2 P1 ACCEPT {int(this_ballot_num[0])} {int(this_ballot_num[1])} {int(this_ballot_num[2])} {operation}{' break '}".encode('utf-8'))
+            network_server.send(f"P2 P3 ACCEPT {int(this_ballot_num[0])} {int(this_ballot_num[1])} {int(this_ballot_num[2])} {operation}{' break '}".encode('utf-8'))
+            print(f"\nSENT:\n P2 P1 ACCEPT {int(this_ballot_num[0])} {int(this_ballot_num[1])} {int(this_ballot_num[2])} {operation}")
+            print(f"\nSENT:\n P2 P3 ACCEPT {int(this_ballot_num[0])} {int(this_ballot_num[1])} {int(this_ballot_num[2])} {operation}")
 
-            accepted_count_map[int(incoming_seq_num), int(incoming_pid), int(incoming_op_num)] = 0
+            accepted_count_map[this_ballot_num] = 0
 
             while True:
-                if accepted_count_map[int(incoming_seq_num), int(incoming_pid), int(incoming_op_num)] >= 1:
+                if accepted_count_map[this_ballot_num] >= 1:
                     network_server.send(f"P2 P1 DECIDE {strip_ballot_num(ballot_number)} {operation}{' break '}".encode('utf-8'))
                     network_server.send(f"P2 P3 DECIDE {strip_ballot_num(ballot_number)} {operation}{' break '}".encode('utf-8'))
                     print(f"\nSENT:\n P2 P1 DECIDE {strip_ballot_num(ballot_number)} {operation}")
@@ -263,14 +260,15 @@ def new_op_to_queue(network_server, src_node, dst_node, incoming_seq_num, incomi
         leader_queue.append([operation, src_node])
         network_server.send(f"{dst_node} {src_node} ACK {incoming_seq_num} {incoming_pid} {incoming_op_num} {operation}{' break '}".encode('utf-8'))
     elif leader == "":
-        election_handler = threading.Thread(target=start_election, args=(network_server,))
-        election_handler.start()
+        network_server.send(f"{dst_node} {src_node} TIMEOUT NEWOP {incoming_seq_num} {incoming_pid} {incoming_op_num} {operation}{' break '}".encode('utf-8'))
     semaphore.release()
-        # print(f"\nSENT:\n {dst_node} {src_node} ACK {incoming_seq_num} {incoming_pid} {incoming_op_num} {operation}")
 
 def start_election(network_server):
     print(f"starting election")
     global ballot_number
+    global leader
+    
+    leader = ""
 
     with lock:
         ballot_number = (int(ballot_number[0] + 1), int(ballot_number[1]), int(ballot_number[2]))
@@ -281,10 +279,10 @@ def start_election(network_server):
     print(f"\nSENT:\n P2 P3 PREPARE {strip_ballot_num(ballot_number)}")
 
     global promise_count_map
-    promise_count_map[int(ballot_number[0]), int(ballot_number[1]), int(ballot_number[2])] = 0
+    this_ballot_num = int(ballot_number[0]), int(ballot_number[1]), int(ballot_number[2])
+    promise_count_map[this_ballot_num] = 0
     while True:
-        if promise_count_map[int(ballot_number[0]), int(ballot_number[1]), int(ballot_number[2])] >=1 :
-            global leader
+        if promise_count_map[this_ballot_num] >=1 :
             with lock:
                 leader = "P2"
                 print("\nP2 is the leader")
@@ -403,6 +401,14 @@ def handle_user_input(s1, network_server):
 
         if operation == "exit":
             do_exit(s1, network_server)
+        elif operation == "leader":
+            global leader
+            print(f"Leader = {leader}")
+            continue
+        elif operation == "oplog":
+            global op_log
+            print(f"OPLOG = {op_log}")
+            continue
 
         if leader == "P2":
             with lock:
