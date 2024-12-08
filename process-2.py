@@ -8,8 +8,8 @@ import apikey
 import ast
 
 model = genai.GenerativeModel("gemini-1.5-flash")
-##TODO change when copy and pasting!
-ballot_number = (0, 2, 0) # <seq_num, pid, op_num>
+# TODO change when copy and pasting!
+ballot_number = (0, 1, 0) # <seq_num, pid, op_num>
 leader = "" # initialize leader to empty string, to be changed once leader has been elected
 accepted_num = (0, 0, 0)
 accepted_val = ""
@@ -81,7 +81,7 @@ def handle_promise(incoming_op_log, incoming_seq_num, incoming_pid, incoming_op_
         if key not in promise_count_map: 
           promise_count_map[key] = 0
         promise_count_map[key] += 1
-        # promise_count_map[int(incoming_seq_num), int(incoming_pid), int(incoming_op_num)] += 1
+#         promise_count_map[int(incoming_seq_num), int(incoming_pid), int(incoming_op_num)] += 1
         # promise_count_map[int(ballot_number[0]), int(ballot_number[1]), int(ballot_number[2])] += 1
 
 def handle_accept(network_server, src_node, dst_node, incoming_seq_num, incoming_pid, incoming_op_num, operation):
@@ -105,8 +105,6 @@ def handle_accepted(incoming_seq_num, incoming_pid, incoming_op_num):
     accepted_count_map[key] += 1
 
 def handle_decide(network_server, operation, query_src, incoming_seq_num, incoming_pid, incoming_op_num):
-    print("originating node: ", query_src)
-    # print("in handle_decide")
     global accepted_num
     global accepted_val
     global ballot_number
@@ -192,7 +190,6 @@ def handle_answer(context_id, response, incoming_seq_num, incoming_pid, incoming
     contexts[context_id] += f"\nResponse: {response}"
 
 def select_best_answer(network_server, context_id, query_src, response, incoming_seq_num, incoming_pid, incoming_op_num): 
-    # print("selecting best answer")
     global answer_count_map
 
     start_time = time.time()
@@ -202,7 +199,7 @@ def select_best_answer(network_server, context_id, query_src, response, incoming
         answer_count_map[this_ballot_num] = 0
         while True:
             if answer_count_map[this_ballot_num] == 2:
-                print("Select one of the following responses for your query")
+                print("Select one of the following responses for your query: ")
                 context_data = contexts[context_id]
                 responses = context_data.split("Query:")[-1]
                 responses_parts = responses.split("\nResponse:")
@@ -224,11 +221,9 @@ def select_best_answer(network_server, context_id, query_src, response, incoming
         print(f"\nSENT:\n P2 {query_src} ANSWER {incoming_seq_num} {incoming_pid} {incoming_op_num} {context_id} {response}")
 
 def handle_LLM_query(network_server, query_src, context_id, query, incoming_seq_num, incoming_pid, incoming_op_num):
-    # print("handling LLM query")
     # to do: change so that it takes in the entire context, not just the the current query
     contexts[context_id] += f"\nQuery: {query}"
     response = (model.generate_content(contents=query, generation_config={"temperature": 1.2})).text
-    print(f"LLM response for \"{query}\": {response}")
 
     select_answer_handler = threading.Thread(target=select_best_answer, args=(network_server, context_id, query_src, response, incoming_seq_num, incoming_pid, incoming_op_num))
     select_answer_handler.start()
@@ -443,7 +438,7 @@ def handle_user_input(s1, network_server):
 
 def start_client():
     s1 = socket.socket(socket.AF_INET, socket.SOCK_STREAM) 
-    s1.bind(('127.0.0.1', 9007)) 
+    s1.bind(('127.0.0.1', 9004)) 
     s1.listen(3)
 
     network_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM) 

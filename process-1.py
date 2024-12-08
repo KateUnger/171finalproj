@@ -107,8 +107,6 @@ def handle_accepted(incoming_seq_num, incoming_pid, incoming_op_num):
     accepted_count_map[key] += 1
 
 def handle_decide(network_server, operation, query_src, incoming_seq_num, incoming_pid, incoming_op_num):
-    print("originating node: ", query_src)
-    # print("in handle_decide")
     global accepted_num
     global accepted_val
     global ballot_number
@@ -195,7 +193,6 @@ def handle_answer(context_id, response, incoming_seq_num, incoming_pid, incoming
     contexts[context_id] += f"\nResponse: {response}"
 
 def select_best_answer(network_server, context_id, query_src, response, incoming_seq_num, incoming_pid, incoming_op_num): 
-    print("selecting best answer")
     global answer_count_map
 
     start_time = time.time()
@@ -227,11 +224,9 @@ def select_best_answer(network_server, context_id, query_src, response, incoming
         print(f"\nSENT:\n P1 {query_src} ANSWER {incoming_seq_num} {incoming_pid} {incoming_op_num} {context_id} {response}")
 
 def handle_LLM_query(network_server, query_src, context_id, query, incoming_seq_num, incoming_pid, incoming_op_num):
-    # print("handling LLM query")
     # to do: change so that it takes in the entire context, not just the the current query
     contexts[context_id] += f"\nQuery: {query}"
     response = (model.generate_content(contents=query, generation_config={"temperature": 1.2})).text
-    print(f"LLM response for \"{query}\": {response}")
 
     select_answer_handler = threading.Thread(target=select_best_answer, args=(network_server, context_id, query_src, response, incoming_seq_num, incoming_pid, incoming_op_num))
     select_answer_handler.start()
