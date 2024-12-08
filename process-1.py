@@ -288,7 +288,6 @@ def handle_leader_queue(network_server):
 def new_op_to_queue(network_server, src_node, dst_node, incoming_seq_num, incoming_pid, incoming_op_num, operation):
     global leader
     if leader == "P1":
-        print("originating node: ", src_node)
         leader_queue.append([operation, src_node])
         network_server.send(f"{dst_node} {src_node} ACK {incoming_seq_num} {incoming_pid} {incoming_op_num} {operation}{' break '}".encode('utf-8'))
     # elif (leader == "P2") or (leader == "P3"):

@@ -108,7 +108,6 @@ def handle_accepted(incoming_seq_num, incoming_pid, incoming_op_num):
     accepted_count_map[key] += 1
 
 def handle_decide(network_server, operation, query_src, incoming_seq_num, incoming_pid, incoming_op_num):
-    print("originating node: ", query_src)
     global accepted_num
     global accepted_val
     global ballot_number
@@ -301,6 +300,7 @@ def start_election(network_server):
     print(f"starting election")
     global ballot_number
     global leader
+    global pid
 
     leader = ""
 
@@ -461,10 +461,8 @@ def handle_server_input(s1, network_server):
                         spliced_op = spliced_op.replace(f"{src_node} {dst_node} TIMEOUT {timed_out_op} {incoming_seq_num} {incoming_pid} {incoming_op_num} ", "")
                         if leader == "P1":
                             network_server.send(f"P3 P2 FWD P3 P1 {timed_out_op} {incoming_seq_num} {incoming_pid} {incoming_op_num} {spliced_op}{' break '}".encode('utf-8'))
-                            pass
                         elif leader == "P2":
                             network_server.send(f"P3 P1 FWD P3 P2 {timed_out_op} {incoming_seq_num} {incoming_pid} {incoming_op_num} {spliced_op}{' break '}".encode('utf-8'))
-                            pass
                     elif dst_node != leader and leader != "P3":
                         if timed_out_op == "NEWOP":
                             spliced_op = spliced_op.replace(f"{src_node} {dst_node} TIMEOUT NEWOP {incoming_seq_num} {incoming_pid} {incoming_op_num} ", "")
@@ -477,8 +475,6 @@ def handle_server_input(s1, network_server):
                             network_server.send(f"P3 P2 FWD P3 P1 {timed_out_op} {incoming_seq_num} {incoming_pid} {incoming_op_num} {spliced_op}{' break '}".encode('utf-8'))
                         elif dst_node == "P2":
                             network_server.send(f"P3 P1 FWD P3 P2 {timed_out_op} {incoming_seq_num} {incoming_pid} {incoming_op_num} {spliced_op}{' break '}".encode('utf-8'))
-
-
         except:
             break
 
