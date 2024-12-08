@@ -69,6 +69,9 @@ def change_node_links(node, value):
 #Function to close all sockets and exit program
 def do_exit():
     #Close all open sockets
+    do_fail_node("failNode P1")
+    do_fail_node("failNode P2")
+    do_fail_node("failNode P3")
     connections["NS"].close()
     if node_alive("P1"):
         connections["P1"].close()
