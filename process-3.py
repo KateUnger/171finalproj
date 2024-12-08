@@ -9,7 +9,8 @@ import ast
 
 model = genai.GenerativeModel("gemini-1.5-flash")
 # TODO change when copy and pasting!
-ballot_number = (0, 1, 0) # <seq_num, pid, op_num>
+pid = 3
+ballot_number = (0, 3, 0) # <seq_num, pid, op_num>
 leader = "" # initialize leader to empty string, to be changed once leader has been elected
 accepted_num = (0, 0, 0)
 accepted_val = ""
@@ -40,11 +41,11 @@ def handle_prepare(network_server, src_node, dst_node, incoming_seq_num, incomin
     global leader
     leader = ""
 
-    if int(incoming_seq_num) > ballot_number[0]: # to do: > or >=
-        ballot_number = (int(incoming_seq_num), int(ballot_number[1]), ballot_number[2])
-        
+    if int(incoming_seq_num) > ballot_number[0]: # to do: > or >=        
         with lock:
+            ballot_number = (int(incoming_seq_num), int(incoming_pid), int(incoming_op_num))
             leader = src_node
+            print("NEW LEADER: ", leader)
         network_server.send(f"{dst_node} {src_node} PROMISE {incoming_seq_num} {incoming_pid} {incoming_op_num} {accepted_num[0]} {accepted_num[1]} {accepted_num[2]} {accepted_val} {op_log}{' break '}".encode('utf-8'))
         print(f"\nSENT:\n {dst_node} {src_node} PROMISE {incoming_seq_num} {incoming_pid} {incoming_op_num} {accepted_num[0]} {accepted_num[1]} {accepted_num[2]} {accepted_val} {op_log}")
 
@@ -54,7 +55,9 @@ def handle_prepare(network_server, src_node, dst_node, incoming_seq_num, incomin
     
     elif int(incoming_seq_num) == ballot_number[0] and int(incoming_pid) >= ballot_number[1]:
         with lock:
+            ballot_number = (int(incoming_seq_num), int(incoming_pid), int(incoming_op_num))
             leader = src_node
+            print("NEW LEADER: ", leader)
         network_server.send(f"{dst_node} {src_node} PROMISE {incoming_seq_num} {incoming_pid} {incoming_op_num} {accepted_num[0]} {accepted_num[1]} {accepted_num[2]} {accepted_val} {op_log}{' break '}".encode('utf-8'))
         print(f"\nSENT:\n {dst_node} {src_node} PROMISE {incoming_seq_num} {incoming_pid} {incoming_op_num} {accepted_num[0]} {accepted_num[1]} {accepted_num[2]} {accepted_val} {op_log}")
         
@@ -73,7 +76,7 @@ def handle_promise(incoming_op_log, incoming_seq_num, incoming_pid, incoming_op_
     incoming_op_log = ast.literal_eval(incoming_op_log)
 
     if incoming_op_log:
-        op_log.append(incoming_op_log) 
+        op_log.extend(incoming_op_log) 
     print("op_log: ", op_log)
     
     with lock:
@@ -283,6 +286,7 @@ def start_election(network_server):
 
     with lock:
         ballot_number = (int(ballot_number[0] + 1), int(ballot_number[1]), int(ballot_number[2]))
+        this_ballot_num = int(ballot_number[0]), int(ballot_number[1]), int(ballot_number[2])
     
     network_server.send(f"P3 P1 PREPARE {strip_ballot_num(ballot_number)}{' break '}".encode('utf-8'))
     network_server.send(f"P3 P2 PREPARE {strip_ballot_num(ballot_number)}{' break '}".encode('utf-8'))
@@ -290,13 +294,15 @@ def start_election(network_server):
     print(f"\nSENT:\n P3 P2 PREPARE {strip_ballot_num(ballot_number)}")
 
     global promise_count_map
-    this_ballot_num = int(ballot_number[0]), int(ballot_number[1]), int(ballot_number[2])
     promise_count_map[this_ballot_num] = 0
     while True:
         if promise_count_map[this_ballot_num] >=1 :
             with lock:
-                leader = "P3"
-                print("\nP3 is the leader")
+                if ((int(this_ballot_num[0]) >= int(ballot_number[0]))
+                     and (int(this_ballot_num[1]) >= int(ballot_number[1])) 
+                     and (int(this_ballot_num[2]) >= int(ballot_number[2]))):
+                    leader = "P3"
+                    print("\nP3 is the leader")
                 leader_queue.clear()
                 leader_queue_handler = threading.Thread(target=handle_leader_queue, args=(network_server,))
                 leader_queue_handler.start()
