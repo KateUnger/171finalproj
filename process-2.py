@@ -140,13 +140,14 @@ def handle_decide(network_server, operation, query_src, incoming_seq_num, incomi
             response_num = int(operation_split[2])
             context_data = contexts[context_id]
             context_parts = context_data.split("\nResponse:")
-            print(context_parts)
+            # print(context_parts)
 
             foundLastQuery = False
             responsesForLastQuery = []
             updated_context = []
             for i in range(len(context_parts) - 1, -1, -1):
                 if "Query:" in context_parts[i]:
+                    # context_parts[i] += "\n"
                     foundLastQuery = True
                     updated_context = context_parts[0:i + 1]
                     break
@@ -159,10 +160,8 @@ def handle_decide(network_server, operation, query_src, incoming_seq_num, incomi
             if not (0 <= response_num - 1 < len(responsesForLastQuery)):
                 raise ValueError("Invalid response number!")
 
-            # print(f"responses for the last query: {responsesForLastQuery}\n")
-            # print(f"updated context (context without the last responses) : {updated_context}\n")
             contexts[context_id] = "\nResponse:".join(updated_context + [responsesForLastQuery[response_num - 1]])
-            # print(f"new context at context id: {contexts[context_id]}")
+
         case "view":
             context_id = operation_split[1]
             print(f"Context {context_id}: \n{contexts[context_id]}")
@@ -194,34 +193,50 @@ def handle_answer(context_id, response, incoming_seq_num, incoming_pid, incoming
 
 def select_best_answer(network_server, context_id, query_src, response, incoming_seq_num, incoming_pid, incoming_op_num): 
     global answer_count_map
+    global leader
 
     start_time = time.time()
-    if query_src == "P2":
-        contexts[context_id] += f"\nResponse: {response}"
+
+    if leader != "P2":
+        network_server.send(f"P2 {leader} ANSWER {incoming_seq_num} {incoming_pid} {incoming_op_num} {context_id} {response}{' break '}".encode('utf-8'))
+        print(f"\nSENT:\n P2 {leader} ANSWER {incoming_seq_num} {incoming_pid} {incoming_op_num} {context_id} {response}")
+    elif leader == "P2":
+        contexts[context_id] += f"\n\nResponse: {response}"
         this_ballot_num = int(incoming_seq_num), int(incoming_pid), int(incoming_op_num)
         answer_count_map[this_ballot_num] = 0
         while True:
             if answer_count_map[this_ballot_num] == 2:
-                print("Select one of the following responses for your query: ")
+                response_choices = ""
+                # print("Select one of the following responses for your query")
                 context_data = contexts[context_id]
                 responses = context_data.split("Query:")[-1]
                 responses_parts = responses.split("\nResponse:")
-                print(context_data.split("Query:"))
-                print(responses_parts)
+                # print(context_data.split("Query:"))
+                # print(responses_parts)
                 for i, text in enumerate(responses_parts):
                     if i == 0: 
-                        print(f"Query: {text}")
+                        response_choices += f"\nQuery: {text}"
                     else:
-                        print(f"Response {i}: {text}")
+                        response_choices += f"\nResponse: {text}"
                 break
-            
+
             elif time.time() - start_time > 20:
                 print(f"Timeout reached: proceed without all responses for context {context_id}")
+                response_choices = ""
+                context_data = contexts[context_id]
+                responses = context_data.split("Query:")[-1]
+                responses_parts = responses.split("\nResponse:")
+                for i, text in enumerate(responses_parts):
+                    if i == 0: 
+                        response_choices += f"\nQuery: {text}"
+                    else:
+                        response_choices += f"\nResponse: {text}"
                 break
-    else:
-        network_server.send(f"P2 {query_src} ANSWER {incoming_seq_num} {incoming_pid} {incoming_op_num} {context_id} {response}{' break '}".encode('utf-8'))
-        print("send our LLM answer to the query originating process")
-        print(f"\nSENT:\n P2 {query_src} ANSWER {incoming_seq_num} {incoming_pid} {incoming_op_num} {context_id} {response}")
+
+        network_server.send(f"P2 P1 RESPONSES {incoming_seq_num} {incoming_pid} {incoming_op_num} {query_src} {context_id} {response_choices}{' break '}".encode('utf-8'))
+        network_server.send(f"P2 P3 RESPONSES {incoming_seq_num} {incoming_pid} {incoming_op_num} {query_src} {context_id} {response_choices}{' break '}".encode('utf-8'))
+        print(f"\nSENT:\n P2 P1 RESPONSES {incoming_seq_num} {incoming_pid} {incoming_op_num} {query_src} {context_id} {response_choices}")
+        print(f"\nSENT:\n P2 P3 RESPONSES {incoming_seq_num} {incoming_pid} {incoming_op_num} {query_src} {context_id} {response_choices}")
 
 def handle_LLM_query(network_server, query_src, context_id, query, incoming_seq_num, incoming_pid, incoming_op_num):
     # to do: change so that it takes in the entire context, not just the the current query
@@ -397,6 +412,28 @@ def handle_server_input(s1, network_server):
                     spliced_op = spliced_op.replace(f"{src_node} {dst_node} ANSWER {incoming_seq_num} {incoming_pid} {incoming_op_num} {context_id} ", "")
                     answer_handler = threading.Thread(target=handle_answer, args=(context_id, spliced_op, incoming_seq_num, incoming_pid, incoming_op_num))
                     answer_handler.start()
+                
+                elif consensus_op == "RESPONSES": # RESPONSES {ballot_num} {context_id} {response_choices}
+                    incoming_seq_num = response_split[3]
+                    incoming_pid = response_split[4]
+                    incoming_op_num = response_split[5]
+                    query_src = response_split[6]
+                    context_id = response_split[7]
+                    spliced_op = spliced_op.replace(f"{src_node} {dst_node} RESPONSES {incoming_seq_num} {incoming_pid} {incoming_op_num} {query_src} {context_id} ", "")
+                    spliced_op = spliced_op.split("\nResponse: ")
+                    global contexts
+                    
+                    if query_src == "P2":
+                        print("Select one of the following responses for your query")
+                        for i, text in enumerate(spliced_op):
+                            if i == 0:
+                                print(text)
+                            else:
+                                print(f"Response {i}: {text}")
+
+                    del spliced_op[0]
+                    contexts[context_id] += "\n\nResponse:" + "\nResponse:".join(spliced_op)
+                    # print("context after recieving response: ", contexts[context_id])
 
                 elif consensus_op == "NEWOP": # NEWOP {ballot_num} {operation}
                     incoming_seq_num = response_split[3]
