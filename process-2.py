@@ -38,8 +38,9 @@ def strip_ballot_num(incoming_ballot):
 
 def handle_prepare(network_server, src_node, dst_node, incoming_seq_num, incoming_pid, incoming_op_num):
     global ballot_number
+    global pid
     global leader
-    leader = ""
+    # leader = ""
 
     if int(incoming_seq_num) > ballot_number[0]: # to do: > or >=        
         with lock:
@@ -65,9 +66,10 @@ def handle_prepare(network_server, src_node, dst_node, incoming_seq_num, incomin
             network_server.send(f"{dst_node} {src_node} NEWOP {temp_ballot_num[0]} {temp_ballot_num[1]} {temp_ballot_num[2]} {temp_op[0]}{' break '}".encode('utf-8'))
             print(f"\nSENT:\n {dst_node} {src_node} NEWOP {temp_ballot_num[0]} {temp_ballot_num[1]} {temp_ballot_num[2]} {temp_op[0]}")
     
-    # elif (leader == ""):
-    #     election_handler = threading.Thread(target=start_election, args=(network_server,))
-    #     election_handler.start()
+    elif leader ==  f"P{pid}":
+        #Ballot Number is lower, we are the leader
+        print("HERE")
+        network_server.send(f"{dst_node} {src_node} LEADER{' break '}".encode('utf-8'))
 
 def handle_promise(incoming_op_log, incoming_seq_num, incoming_pid, incoming_op_num):
     # to do: decide how to update the local log with the log recieved from nodes
@@ -76,7 +78,11 @@ def handle_promise(incoming_op_log, incoming_seq_num, incoming_pid, incoming_op_
     incoming_op_log = ast.literal_eval(incoming_op_log)
 
     if incoming_op_log:
-        op_log.extend(incoming_op_log) 
+        if int(incoming_seq_num) > int(ballot_number[0]):
+            op_log = incoming_op_log
+        elif int(incoming_seq_num) == ballot_number[0] and int(incoming_pid) >= ballot_number[1]:
+            print("incoming op_log changed bc of pid")
+            op_log = incoming_op_log
     print("op_log: ", op_log)
     
     with lock:
@@ -84,13 +90,21 @@ def handle_promise(incoming_op_log, incoming_seq_num, incoming_pid, incoming_op_
         if key not in promise_count_map: 
           promise_count_map[key] = 0
         promise_count_map[key] += 1
-#         promise_count_map[int(incoming_seq_num), int(incoming_pid), int(incoming_op_num)] += 1
-        # promise_count_map[int(ballot_number[0]), int(ballot_number[1]), int(ballot_number[2])] += 1
 
 def handle_accept(network_server, src_node, dst_node, incoming_seq_num, incoming_pid, incoming_op_num, operation):
     global accepted_num
     global accepted_val
+    global leader
 
+    with lock:
+        if leader == "":
+            leader = src_node
+
+    if int(incoming_seq_num) > int(ballot_number[0]):
+        network_server.send(f"{dst_node} {src_node} RECOVERY_ASK {' break '}".encode('utf-8'))
+    elif int(incoming_seq_num) == int(ballot_number[0]) and int(incoming_op_num) > ballot_number[2] + 1:
+        network_server.send(f"{dst_node} {src_node} RECOVERY_ASK {' break '}".encode('utf-8'))
+    
     if int(incoming_op_num) >= ballot_number[2]:
         network_server.send(f"{dst_node} {src_node} ACCEPTED {incoming_seq_num} {incoming_pid} {incoming_op_num} {operation}{' break '}".encode('utf-8'))
         print(f"\nSENT:\n {dst_node} {src_node} ACCEPTED {incoming_seq_num} {incoming_pid} {incoming_op_num} {operation}")
@@ -107,13 +121,16 @@ def handle_accepted(incoming_seq_num, incoming_pid, incoming_op_num):
         accepted_count_map[key] = 0
     accepted_count_map[key] += 1
 
-def handle_decide(network_server, operation, query_src, incoming_seq_num, incoming_pid, incoming_op_num):
+def handle_decide(network_server, operation, query_src, incoming_seq_num, incoming_pid, incoming_op_num, src_node):
     global accepted_num
     global accepted_val
     global ballot_number
     global op_log
+    global leader
 
     with lock:
+        if leader == "":
+            leader = src_node
         ballot_number = (int(ballot_number[0]), int(ballot_number[1]), int(ballot_number[2] + 1))
 
     operation_split = operation.split(" ")
@@ -251,6 +268,7 @@ def handle_LLM_query(network_server, query_src, context_id, query, incoming_seq_
 
 def handle_leader_queue(network_server):
         global accepted_count_map
+        global pid
         # to do: add to the end of the leader_queue or set equal to temp_queue?
         leader_queue.extend(temp_queue.values())
 
@@ -281,7 +299,7 @@ def handle_leader_queue(network_server):
                     incoming_pid = stripped_ballot_num[1]
                     incoming_op_num = stripped_ballot_num[2]
 
-                    decide_handler = threading.Thread(target=handle_decide, args=(network_server, operation, query_src, incoming_seq_num, incoming_pid, incoming_op_num))
+                    decide_handler = threading.Thread(target=handle_decide, args=(network_server, operation, query_src, incoming_seq_num, incoming_pid, incoming_op_num, f"P{pid}"))
                     decide_handler.start()
                     break
 
@@ -315,6 +333,7 @@ def start_election(network_server):
 
     global promise_count_map
     promise_count_map[this_ballot_num] = 0
+    start_time = time.time()
     while True:
         if promise_count_map[this_ballot_num] >=1 :
             with lock:
@@ -327,8 +346,12 @@ def start_election(network_server):
                 leader_queue_handler = threading.Thread(target=handle_leader_queue, args=(network_server,))
                 leader_queue_handler.start()
                 break
+        elif time.time() - start_time > 10:
+            print(f"Election timed out, stop election")
+            break
 
 def handle_server_input(s1, network_server):
+    global op_log
     while True:
         try:
             stream = network_server.recv(1024).decode('utf-8') 
@@ -402,7 +425,7 @@ def handle_server_input(s1, network_server):
                     incoming_pid = response_split[4]
                     incoming_op_num = response_split[5]
                     spliced_op = spliced_op.replace(f"{src_node} {dst_node} DECIDE {incoming_seq_num} {incoming_pid} {incoming_op_num} ", "")
-                    decide_handler = threading.Thread(target=handle_decide, args=(network_server, spliced_op, src_node, incoming_seq_num, incoming_pid, incoming_op_num))
+                    decide_handler = threading.Thread(target=handle_decide, args=(network_server, spliced_op, src_node, incoming_seq_num, incoming_pid, incoming_op_num, src_node))
                     decide_handler.start()
 
                 elif consensus_op == "ANSWER": # ANSWER {ballot_num} {context_id} {answer} - getting answers from other nodes, {dst_node} is the originating process
@@ -413,6 +436,14 @@ def handle_server_input(s1, network_server):
                     spliced_op = spliced_op.replace(f"{src_node} {dst_node} ANSWER {incoming_seq_num} {incoming_pid} {incoming_op_num} {context_id} ", "")
                     answer_handler = threading.Thread(target=handle_answer, args=(context_id, spliced_op, incoming_seq_num, incoming_pid, incoming_op_num))
                     answer_handler.start()
+
+                elif consensus_op == "LEADER":
+                    global leader
+                    global temp_queue
+                    leader = src_node
+                    for temp_ballot_num, temp_op in temp_queue.items():
+                        network_server.send(f"{dst_node} {src_node} NEWOP {temp_ballot_num[0]} {temp_ballot_num[1]} {temp_ballot_num[2]} {temp_op[0]}{' break '}".encode('utf-8'))
+                        print(f"\nSENT:\n {dst_node} {src_node} NEWOP {temp_ballot_num[0]} {temp_ballot_num[1]} {temp_ballot_num[2]} {temp_op[0]}")
                 
                 elif consensus_op == "RESPONSES": # RESPONSES {ballot_num} {context_id} {response_choices}
                     incoming_seq_num = response_split[3]
@@ -436,6 +467,13 @@ def handle_server_input(s1, network_server):
                     contexts[context_id] += "\n\nResponse:" + "\nResponse:".join(spliced_op)
                     # print("context after recieving response: ", contexts[context_id])
 
+                elif consensus_op == "RECOVERY_RESP": # RECOVERY 
+                    spliced_op = spliced_op.replace(f"{src_node} {dst_node} RECOVERY_RESP ", "")
+                    op_log = ast.literal_eval(spliced_op)
+                    
+                elif consensus_op == "RECOVERY_ASK": # RECOVERY 
+                    network_server.send(f"{dst_node} {src_node} RECOVERY_RESP {op_log}{' break '}".encode('utf-8'))
+
                 elif consensus_op == "NEWOP": # NEWOP {ballot_num} {operation}
                     incoming_seq_num = response_split[3]
                     incoming_pid = response_split[4]
@@ -454,27 +492,32 @@ def handle_server_input(s1, network_server):
 
                 elif consensus_op == "TIMEOUT":
                     timed_out_op = response_split[3]
-                    incoming_seq_num = response_split[4]
-                    incoming_pid = response_split[5]
-                    incoming_op_num = response_split[6]
-                    if dst_node == leader:
-                        spliced_op = spliced_op.replace(f"{src_node} {dst_node} TIMEOUT {timed_out_op} {incoming_seq_num} {incoming_pid} {incoming_op_num} ", "")
-                        if leader == "P1":
-                            network_server.send(f"P2 P3 FWD P2 P1 {timed_out_op} {incoming_seq_num} {incoming_pid} {incoming_op_num} {spliced_op}{' break '}".encode('utf-8'))
-                        elif leader == "P3":
-                            network_server.send(f"P2 P1 FWD P2 P3 {timed_out_op} {incoming_seq_num} {incoming_pid} {incoming_op_num} {spliced_op}{' break '}".encode('utf-8'))
-                    elif dst_node != leader and leader != "P2":
-                        if timed_out_op == "NEWOP":
-                            spliced_op = spliced_op.replace(f"{src_node} {dst_node} TIMEOUT NEWOP {incoming_seq_num} {incoming_pid} {incoming_op_num} ", "")
-                            # to do: do we need to add the newop to the temp queue? --> we have already added to temp queue before, so we don't need to add again
+                    if response_split[6] != "FWD":
+                        incoming_seq_num = response_split[4]
+                        incoming_pid = response_split[5]
+                        incoming_op_num = response_split[6]
+                        if dst_node == leader:
+                            spliced_op = spliced_op.replace(f"{src_node} {dst_node} TIMEOUT {timed_out_op} {incoming_seq_num} {incoming_pid} {incoming_op_num} ", "")
+                            if leader == "P1":
+                                network_server.send(f"P2 P3 FWD P2 P1 {timed_out_op} {incoming_seq_num} {incoming_pid} {incoming_op_num} {spliced_op}{' break '}".encode('utf-8'))
+                            elif leader == "P3":
+                                network_server.send(f"P2 P1 FWD P2 P3 {timed_out_op} {incoming_seq_num} {incoming_pid} {incoming_op_num} {spliced_op}{' break '}".encode('utf-8'))
+                        elif dst_node != leader and leader != "P2":
+                            if timed_out_op == "NEWOP":
+                                spliced_op = spliced_op.replace(f"{src_node} {dst_node} TIMEOUT NEWOP {incoming_seq_num} {incoming_pid} {incoming_op_num} ", "")
+                                # to do: do we need to add the newop to the temp queue? --> we have already added to temp queue before, so we don't need to add again
+                                election_handler = threading.Thread(target=start_election, args=(network_server,))
+                                election_handler.start()
+                        elif dst_node != leader and leader == "P2":
+                            spliced_op = spliced_op.replace(f"{src_node} {dst_node} TIMEOUT {timed_out_op} {incoming_seq_num} {incoming_pid} {incoming_op_num} ", "")
+                            if dst_node == "P1":
+                                network_server.send(f"P2 P3 FWD P2 P1 {timed_out_op} {incoming_seq_num} {incoming_pid} {incoming_op_num} {spliced_op}{' break '}".encode('utf-8'))
+                            elif dst_node == "P3":
+                                network_server.send(f"P2 P1 FWD P2 P3 {timed_out_op} {incoming_seq_num} {incoming_pid} {incoming_op_num} {spliced_op}{' break '}".encode('utf-8'))
+                    else:
+                        print("Leader cannot be reached via forwarding, starting an election.")
                         election_handler = threading.Thread(target=start_election, args=(network_server,))
                         election_handler.start()
-                    elif dst_node != leader and leader == "P2":
-                        spliced_op = spliced_op.replace(f"{src_node} {dst_node} TIMEOUT {timed_out_op} {incoming_seq_num} {incoming_pid} {incoming_op_num} ", "")
-                        if dst_node == "P1":
-                            network_server.send(f"P2 P3 FWD P2 P1 {timed_out_op} {incoming_seq_num} {incoming_pid} {incoming_op_num} {spliced_op}{' break '}".encode('utf-8'))
-                        elif dst_node == "P3":
-                            network_server.send(f"P2 P1 FWD P2 P3 {timed_out_op} {incoming_seq_num} {incoming_pid} {incoming_op_num} {spliced_op}{' break '}".encode('utf-8'))
         except:
             break
 
