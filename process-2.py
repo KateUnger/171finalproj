@@ -271,9 +271,12 @@ def handle_leader_queue(network_server):
                     break
 
 def new_op_to_queue(network_server, src_node, dst_node, incoming_seq_num, incoming_pid, incoming_op_num, operation):
+    global leader
     if leader == "P2":
         leader_queue.append([operation, src_node])
         network_server.send(f"{dst_node} {src_node} ACK {incoming_seq_num} {incoming_pid} {incoming_op_num} {operation}{' break '}".encode('utf-8'))
+    # elif (leader == "P1") or (leader == "P3"):
+    #     network_server.send(f"{dst_node} {leader} FWD {src_node} {leader} NEWOP {incoming_seq_num} {incoming_pid} {incoming_op_num} {operation}{' break '}".encode('utf-8'))
     elif leader == "":
         network_server.send(f"{dst_node} {src_node} TIMEOUT NEWOP {incoming_seq_num} {incoming_pid} {incoming_op_num} {operation}{' break '}".encode('utf-8'))
     semaphore.release()
@@ -286,7 +289,7 @@ def start_election(network_server):
     leader = ""
 
     with lock:
-        ballot_number = (int(ballot_number[0] + 1), int(ballot_number[1]), int(ballot_number[2]))
+        ballot_number = (int(ballot_number[0] + 1), pid, int(ballot_number[2]))
         this_ballot_num = int(ballot_number[0]), int(ballot_number[1]), int(ballot_number[2])
     
     network_server.send(f"P2 P1 PREPARE {strip_ballot_num(ballot_number)}{' break '}".encode('utf-8'))
@@ -328,6 +331,21 @@ def handle_server_input(s1, network_server):
                 dst_node = response_split[1]
                 consensus_op = response_split[2] 
                 spliced_op = message
+
+                if consensus_op == "FWD": # FWD {orig_src_node} {leader} {fwd_consensus_op} {ballot_num} {operation}
+                    final_dest = response_split[4]
+                    print(f"final_dest = {final_dest}")
+                    if(final_dest != "P2"):
+                        spliced_op = spliced_op.replace(f"{src_node} {dst_node} FWD ", "")
+                        print(f"Spliced_op = {spliced_op}")
+                        network_server.send(f"P2 {final_dest} FWD {spliced_op}{' break '}".encode('utf-8'))
+                        continue
+                    else:
+                        spliced_op = spliced_op.replace(f"{src_node} {dst_node} FWD ", "")
+                        src_node = response_split[3]
+                        dst_node = response_split[4]
+                        consensus_op = response_split[5] 
+                        response_split = spliced_op.split(" ")
 
                 if consensus_op == "PREPARE": # PREPARE {ballot_num} --> e.g. PREPARE 1 1 2
                     incoming_seq_num = response_split[3]
@@ -401,14 +419,27 @@ def handle_server_input(s1, network_server):
                     incoming_seq_num = response_split[4]
                     incoming_pid = response_split[5]
                     incoming_op_num = response_split[6]
-                    if timed_out_op == "NEWOP":
-                        spliced_op = spliced_op.replace(f"{src_node} {dst_node} TIMEOUT NEWOP {incoming_seq_num} {incoming_pid} {incoming_op_num} ", "")
-                        # to do: do we need to add the newop to the temp queue? --> we have already added to temp queue before, so we don't need to add again
+                    if dst_node == leader:
+                        spliced_op = spliced_op.replace(f"{src_node} {dst_node} TIMEOUT {timed_out_op} {incoming_seq_num} {incoming_pid} {incoming_op_num} ", "")
+                        if leader == "P1":
+                            network_server.send(f"P2 P3 FWD P2 P1 {timed_out_op} {incoming_seq_num} {incoming_pid} {incoming_op_num} {spliced_op}{' break '}".encode('utf-8'))
+                            pass
+                        elif leader == "P3":
+                            network_server.send(f"P2 P1 FWD P2 P3 {timed_out_op} {incoming_seq_num} {incoming_pid} {incoming_op_num} {spliced_op}{' break '}".encode('utf-8'))
+                            pass
+                    elif dst_node != leader and leader != "P2":
+                        if timed_out_op == "NEWOP":
+                            spliced_op = spliced_op.replace(f"{src_node} {dst_node} TIMEOUT NEWOP {incoming_seq_num} {incoming_pid} {incoming_op_num} ", "")
+                            # to do: do we need to add the newop to the temp queue? --> we have already added to temp queue before, so we don't need to add again
                         election_handler = threading.Thread(target=start_election, args=(network_server,))
                         election_handler.start()
-                    elif (leader == dst_node):
-                        election_handler = threading.Thread(target=start_election, args=(network_server,))
-                        election_handler.start()
+                    elif dst_node != leader and leader == "P2":
+                        spliced_op = spliced_op.replace(f"{src_node} {dst_node} TIMEOUT {timed_out_op} {incoming_seq_num} {incoming_pid} {incoming_op_num} ", "")
+                        if dst_node == "P1":
+                            network_server.send(f"P2 P3 FWD P2 P1 {timed_out_op} {incoming_seq_num} {incoming_pid} {incoming_op_num} {spliced_op}{' break '}".encode('utf-8'))
+                        elif dst_node == "P3":
+                            network_server.send(f"P2 P1 FWD P2 P3 {timed_out_op} {incoming_seq_num} {incoming_pid} {incoming_op_num} {spliced_op}{' break '}".encode('utf-8'))
+
 
         except:
             break
