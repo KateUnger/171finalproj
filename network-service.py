@@ -32,8 +32,8 @@ def link_works(src_node, dst_node):
 #Helper function to set link between two nodes to the value passed in
 def set_link(node_to_change, other_node, value):
     global lock
-    num_to_change = int(node_to_change.replace("P",""))
-    other_num = int(other_node.replace("P",""))
+    num_to_change = int(f"{node_to_change}".replace("P",""))
+    other_num = int(f"{other_node}".replace("P",""))
     if num_to_change < other_num:
         with lock:
             links[(node_to_change, other_node)] = value
@@ -108,9 +108,8 @@ def do_fix_link(message):
         print("Incorrect Node ID")
         return
     #Find link in links{}
-    src_num = int(src_node.replace("P",""))
-    dst_num = int(dst_node.replace("P",""))
-    set_link(src_num, dst_num, True)
+    set_link(src_node, dst_node, True)
+    print(f"links = {links}")
 
 #Function to execute the failNode Command
 #failNode <nodeNum> = Kill node (crash failure) and must restart node after
@@ -169,7 +168,6 @@ def send_msg(message):
     #Check for input error (e.g. nodes are incorrect)
 
     if is_not_node(src_node) or is_not_node(dst_node):
-        print("Incorrect Node ID")
         return
     #Check that link exists between node
     if link_works(src_node, dst_node) and node_alive(dst_node) and (dst_node in connections):
